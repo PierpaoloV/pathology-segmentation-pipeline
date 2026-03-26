@@ -10,6 +10,9 @@ import argparse
 import os
 import sys
 
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn, BarColumn, TextColumn
+
 #----------------------------------------------------------------------------------------------------
 
 def assemble_jobs(mask_path, annotation_path):
@@ -68,8 +71,8 @@ def collect_arguments():
     Collect command line arguments.
 
     Returns:
-        (str, str, dict, float, float, float, float, bool, bool): The parsed command line arguments: mask path, output annotation path, label grouping, conversion pixel spacing, target pixel
-            spacing, pixel spacing tolerance, RDP epsilon, keep single points flag, and the overwrite flag.
+        (str, str, dict, float, float, float, float, bool, bool, int): The parsed command line arguments: mask path, output annotation path, label grouping, conversion pixel spacing, target pixel
+            spacing, pixel spacing tolerance, RDP epsilon, keep single points flag, overwrite flag, and worker count.
     """
 
     # Configure argument parser.
@@ -87,6 +90,7 @@ def collect_arguments():
     argument_parser.add_argument('-e', '--epsilon',            required=False, type=float, default=1.0,  help='RDP epsilon')
     argument_parser.add_argument('-p', '--singles',            action='store_true',                      help='keep single points (Dot annotations)')
     argument_parser.add_argument('-w', '--overwrite',          action='store_true',                      help='overwrite existing results')
+    argument_parser.add_argument('-j', '--workers',            required=False, type=int, default=os.cpu_count(), help='number of parallel worker processes (default: cpu count)')
 
     # Parse arguments.
     #
@@ -103,6 +107,7 @@ def collect_arguments():
     parsed_epsilon = arguments['epsilon']
     parsed_singles = arguments['singles']
     parsed_overwrite = arguments['overwrite']
+    parsed_workers = arguments['workers']
 
     # Evaluate grouping descriptor.
     #
@@ -120,6 +125,7 @@ def collect_arguments():
     print('RDP epsilon: {value}'.format(value=parsed_epsilon))
     print('Keep single point annotations: {flag}'.format(flag=parsed_singles))
     print('Overwrite existing results: {flag}'.format(flag=parsed_overwrite))
+    print('Worker processes: {workers}'.format(workers=parsed_workers))
 
     return (parsed_mask_path,
             parsed_annotation_path,
@@ -129,7 +135,8 @@ def collect_arguments():
             parsed_spacing_tolerance,
             parsed_epsilon,
             parsed_singles,
-            parsed_overwrite)
+            parsed_overwrite,
+            parsed_workers)
 
 #----------------------------------------------------------------------------------------------------
 
@@ -143,7 +150,16 @@ def main():
 
     # Collect command line arguments.
     #
-    mask_path, annotation_path, grouping, conversion_pixel_spacing, target_pixel_spacing, spacing_tolerance, epsilon, singles, overwrite = collect_arguments()
+    (mask_path,
+     annotation_path,
+     grouping,
+     conversion_pixel_spacing,
+     target_pixel_spacing,
+     spacing_tolerance,
+     epsilon,
+     singles,
+     overwrite,
+     workers) = collect_arguments()
 
     # Assemble job pairs: (input mask path, output annotation path).
     #
@@ -156,16 +172,49 @@ def main():
         #
         dptloggers.init_console_logger(debug=True)
 
-        # Execute jobs.
+        # Execute jobs in parallel with a progress bar.
         #
-        successful_items, failed_items = dptconversion.create_mask_annotation_batch(job_list=job_list,
-                                                                                    label_map=grouping,
-                                                                                    conversion_spacing=conversion_pixel_spacing,
-                                                                                    target_spacing=target_pixel_spacing,
-                                                                                    spacing_tolerance=spacing_tolerance,
-                                                                                    keep_singles=singles,
-                                                                                    rdp_epsilon=epsilon,
-                                                                                    overwrite=overwrite)
+        failed_items = []
+        successful_items = []
+
+        with Progress(SpinnerColumn(),
+                      TextColumn('[progress.description]{task.description}'),
+                      BarColumn(),
+                      TextColumn('[progress.percentage]{task.percentage:>3.0f}%'),
+                      TimeElapsedColumn()) as progress:
+
+            task = progress.add_task('Converting [0/{total}]'.format(total=len(job_list)), total=len(job_list))
+
+            with ProcessPoolExecutor(max_workers=workers) as executor:
+                future_to_job = {
+                    executor.submit(dptconversion.create_mask_annotation,
+                                    mask=mask_path_item,
+                                    annotation=annotation_path_item,
+                                    label_map=grouping,
+                                    conversion_spacing=conversion_pixel_spacing,
+                                    target_spacing=target_pixel_spacing,
+                                    spacing_tolerance=spacing_tolerance,
+                                    keep_singles=singles,
+                                    rdp_epsilon=epsilon,
+                                    overwrite=overwrite): (mask_path_item, annotation_path_item)
+                    for mask_path_item, annotation_path_item in job_list
+                }
+
+                done_count = 0
+                for future in as_completed(future_to_job):
+                    mask_path_item, annotation_path_item = future_to_job[future]
+                    done_count += 1
+
+                    try:
+                        future.result()
+                        successful_items.append(annotation_path_item)
+                        progress.print('[green]Done[/green] {name}'.format(name=os.path.basename(mask_path_item)))
+                    except Exception as exception:
+                        failed_items.append(annotation_path_item)
+                        progress.print('[red]Error[/red] {name}: {exception}'.format(name=os.path.basename(mask_path_item), exception=exception))
+
+                    progress.update(task, description='Converting [{done}/{total}]'.format(done=done_count, total=len(job_list)))
+                    progress.advance(task)
 
         # Print the collection of failed cases.
         #

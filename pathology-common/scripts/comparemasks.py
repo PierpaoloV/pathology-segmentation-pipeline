@@ -7,6 +7,8 @@ import digitalpathology.utils.loggers as dptloggers
 
 import argparse
 
+from rich.console import Console
+
 #----------------------------------------------------------------------------------------------------
 
 def collect_arguments():
@@ -69,12 +71,14 @@ def main():
 
     # Process the image.
     #
-    dptcomparison.image_similarity(reference=reference_image_path,
-                                   reference_label=reference_label,
-                                   template=template_image_path,
-                                   template_label=template_label,
-                                   pixel_spacing=spacing,
-                                   spacing_tolerance=spacing_tolerance)
+    console = Console()
+    with console.status('Comparing masks...'):
+        dptcomparison.image_similarity(reference=reference_image_path,
+                                       reference_label=reference_label,
+                                       template=template_image_path,
+                                       template_label=template_label,
+                                       pixel_spacing=spacing,
+                                       spacing_tolerance=spacing_tolerance)
 
 #----------------------------------------------------------------------------------------------------
 

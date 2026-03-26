@@ -11,6 +11,9 @@ import os
 import sys
 import re
 
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn, BarColumn, TextColumn
+
 #----------------------------------------------------------------------------------------------------
 
 def assemble_jobs(base_expression, left_path, right_path, result_path, collect_singles):
@@ -88,7 +91,7 @@ def collect_arguments():
     Collect command line arguments.
 
     Returns:
-        (str, str, str, str, str, bool, bool): The parsed command line arguments: base part, left path, right path, result path, operand, overwrite flag and rename singles flag.
+        (str, str, str, str, str, bool, bool, int): The parsed command line arguments: base part, left path, right path, result path, operand, overwrite flag, rename singles flag, and worker count.
     """
 
     # Configure argument parser.
@@ -105,6 +108,7 @@ def collect_arguments():
     argument_parser.add_argument('-o', '--operand',   required=True,  type=str,             help='operand: \'+\', \'-\' or \'*\'')
     argument_parser.add_argument('-w', '--overwrite', action='store_true',                  help='overwrite existing results')
     argument_parser.add_argument('-s', '--singles',   action='store_true',                  help='rename single items to result')
+    argument_parser.add_argument('-j', '--workers',   required=False, type=int, default=os.cpu_count(), help='number of parallel worker processes (default: cpu count)')
 
     # Parse arguments.
     #
@@ -119,6 +123,7 @@ def collect_arguments():
     parsed_operand = arguments['operand']
     parsed_overwrite = arguments['overwrite']
     parsed_singles = arguments['singles']
+    parsed_workers = arguments['workers']
 
     # Print parameters.
     #
@@ -130,10 +135,11 @@ def collect_arguments():
     print('Operand: \'{operand}\''.format(operand=parsed_operand))
     print('Overwrite existing results: {overwrite}'.format(overwrite=parsed_overwrite))
     print('Rename single files to result: {singles}'.format(singles=parsed_singles))
+    print('Worker processes: {workers}'.format(workers=parsed_workers))
 
     # Return parsed values.
     #
-    return parsed_base_part, parsed_left_path, parsed_right_path, parsed_result_path, parsed_operand, parsed_overwrite, parsed_singles
+    return parsed_base_part, parsed_left_path, parsed_right_path, parsed_result_path, parsed_operand, parsed_overwrite, parsed_singles, parsed_workers
 
 #----------------------------------------------------------------------------------------------------
 
@@ -147,7 +153,7 @@ def main():
 
     # Collect command line arguments.
     #
-    base_part, left_path, right_path, result_path, operand_id, overwrite_flag, singles_flag = collect_arguments()
+    base_part, left_path, right_path, result_path, operand_id, overwrite_flag, singles_flag, workers = collect_arguments()
 
     # Assemble job triplets: (left path, right path, result path).
     #
@@ -160,12 +166,46 @@ def main():
         #
         dptloggers.init_console_logger(debug=True)
 
-        # Execute jobs.
+        # Execute jobs in parallel with a progress bar.
         #
-        successful_items, failed_items = dptarithmetic.image_arithmetic_batch(job_list=job_list,
-                                                                              operand=operand_id,
-                                                                              accept_singles=singles_flag,
-                                                                              overwrite=overwrite_flag)
+        failed_items = []
+        successful_items = []
+
+        with Progress(SpinnerColumn(),
+                      TextColumn('[progress.description]{task.description}'),
+                      BarColumn(),
+                      TextColumn('[progress.percentage]{task.percentage:>3.0f}%'),
+                      TimeElapsedColumn()) as progress:
+
+            task = progress.add_task('Combining [0/{total}]'.format(total=len(job_list)), total=len(job_list))
+
+            with ProcessPoolExecutor(max_workers=workers) as executor:
+                future_to_job = {
+                    executor.submit(dptarithmetic.image_arithmetic,
+                                    left=left_path_item,
+                                    right=right_path_item,
+                                    result_path=result_path_item,
+                                    operand=operand_id,
+                                    accept_singles=singles_flag,
+                                    overwrite=overwrite_flag): (left_path_item, result_path_item)
+                    for left_path_item, right_path_item, result_path_item in job_list
+                }
+
+                done_count = 0
+                for future in as_completed(future_to_job):
+                    left_path_item, result_path_item = future_to_job[future]
+                    done_count += 1
+
+                    try:
+                        future.result()
+                        successful_items.append(result_path_item)
+                        progress.print('[green]Done[/green] {name}'.format(name=os.path.basename(result_path_item)))
+                    except Exception as exception:
+                        failed_items.append(result_path_item)
+                        progress.print('[red]Error[/red] {name}: {exception}'.format(name=os.path.basename(result_path_item), exception=exception))
+
+                    progress.update(task, description='Combining [{done}/{total}]'.format(done=done_count, total=len(job_list)))
+                    progress.advance(task)
 
         # Print the collection of failed cases.
         #

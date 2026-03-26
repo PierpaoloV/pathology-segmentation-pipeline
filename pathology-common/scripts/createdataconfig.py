@@ -11,6 +11,8 @@ import datetime
 import time
 import os
 
+from rich.console import Console
+
 #----------------------------------------------------------------------------------------------------
 
 def create_data_container(output_path, image_path, mask_path, stat_path, labels, purpose_ratios, mask_level, mask_spacing, mask_spacing_tolerance, random_item_order, overwrite):
@@ -177,17 +179,19 @@ def main():
 
     # Create data configuration file.
     #
-    create_data_container(output_path=result_path,
-                          image_path=image_filter,
-                          mask_path=mask_filter,
-                          stat_path=stat_filter,
-                          labels=label_list,
-                          purpose_ratios=purposes,
-                          mask_level=level,
-                          mask_spacing=spacing,
-                          mask_spacing_tolerance=tolerance,
-                          random_item_order=random_order,
-                          overwrite=overwrite_flag)
+    console = Console()
+    with console.status('Building data config...'):
+        create_data_container(output_path=result_path,
+                              image_path=image_filter,
+                              mask_path=mask_filter,
+                              stat_path=stat_filter,
+                              labels=label_list,
+                              purpose_ratios=purposes,
+                              mask_level=level,
+                              mask_spacing=spacing,
+                              mask_spacing_tolerance=tolerance,
+                              random_item_order=random_order,
+                              overwrite=overwrite_flag)
 
 #----------------------------------------------------------------------------------------------------
 

@@ -10,6 +10,9 @@ import argparse
 import os
 import sys
 
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn, BarColumn, TextColumn
+
 #----------------------------------------------------------------------------------------------------
 
 def assemble_jobs(image_path, mask_path, preview_path):
@@ -82,8 +85,8 @@ def collect_arguments():
     Collect command line arguments.
 
     Returns:
-        (str, str, str, int, float, float, list, float, str, bool, bool): The parsed command line arguments: input path, mask path, preview path, processing level, processing pixel spacing,
-            and spacing tolerance, palette, alpha value, target directory path for data copy, keep copied files flag, and the overwrite flag.
+        (str, str, str, int, float, float, list, float, str, bool, bool, int): The parsed command line arguments: input path, mask path, preview path, processing level, processing pixel spacing,
+            spacing tolerance, palette, alpha value, target directory path for data copy, keep copied files flag, overwrite flag, and worker count.
     """
 
     # Configure argument parser.
@@ -106,6 +109,7 @@ def collect_arguments():
     argument_parser.add_argument('-c', '--copy_directory', required=False, type=str,   default=None, help='data copy target directory path')
     argument_parser.add_argument('-k', '--keep_copies',    action='store_true',                      help='keep copied image files')
     argument_parser.add_argument('-w', '--overwrite',      action='store_true',                      help='overwrite existing results')
+    argument_parser.add_argument('-j', '--workers',        required=False, type=int, default=os.cpu_count(), help='number of parallel worker processes (default: cpu count)')
 
     # Parse arguments.
     #
@@ -124,6 +128,7 @@ def collect_arguments():
     parsed_copy_directory = arguments['copy_directory']
     parsed_keep_copies = arguments['keep_copies']
     parsed_overwrite = arguments['overwrite']
+    parsed_workers = arguments['workers']
 
     # Convert palette descriptor to map.
     #
@@ -147,6 +152,7 @@ def collect_arguments():
     print('Copy directory path: {path}'.format(path=parsed_copy_directory))
     print('Keep copied files: {flag}'.format(flag=parsed_keep_copies))
     print('Overwrite existing results: {flag}'.format(flag=parsed_overwrite))
+    print('Worker processes: {workers}'.format(workers=parsed_workers))
 
     return (parsed_image_path,
             parsed_mask_path,
@@ -158,7 +164,8 @@ def collect_arguments():
             parsed_preview_alpha,
             parsed_copy_directory,
             parsed_keep_copies,
-            parsed_overwrite)
+            parsed_overwrite,
+            parsed_workers)
 
 #----------------------------------------------------------------------------------------------------
 
@@ -182,7 +189,8 @@ def main():
      preview_alpha,
      copy_directory,
      keep_copied_files,
-     overwrite) = collect_arguments()
+     overwrite,
+     workers) = collect_arguments()
 
     # Assemble job triplets: (image, mask, preview).
     #
@@ -195,17 +203,51 @@ def main():
         #
         dptloggers.init_console_logger(debug=True)
 
-        # Calculate preview with the constructed palette.
+        # Execute jobs in parallel with a progress bar.
         #
-        successful_items, failed_items = dptconversion.calculate_preview_batch(job_list=job_list,
-                                                                               level=processing_level,
-                                                                               pixel_spacing=processing_pixel_spacing,
-                                                                               spacing_tolerance=spacing_tolerance,
-                                                                               alpha=preview_alpha,
-                                                                               palette=preview_palette,
-                                                                               copy_path=copy_directory,
-                                                                               clear_cache=not keep_copied_files,
-                                                                               overwrite=overwrite)
+        failed_items = []
+        successful_items = []
+
+        with Progress(SpinnerColumn(),
+                      TextColumn('[progress.description]{task.description}'),
+                      BarColumn(),
+                      TextColumn('[progress.percentage]{task.percentage:>3.0f}%'),
+                      TimeElapsedColumn()) as progress:
+
+            task = progress.add_task('Creating previews [0/{total}]'.format(total=len(job_list)), total=len(job_list))
+
+            with ProcessPoolExecutor(max_workers=workers) as executor:
+                future_to_job = {
+                    executor.submit(dptconversion.calculate_preview,
+                                    image=image_path_item,
+                                    mask=mask_path_item,
+                                    preview_path=preview_path_item,
+                                    level=processing_level,
+                                    pixel_spacing=processing_pixel_spacing,
+                                    spacing_tolerance=spacing_tolerance,
+                                    alpha=preview_alpha,
+                                    palette=preview_palette,
+                                    copy_path=copy_directory,
+                                    clear_cache=not keep_copied_files,
+                                    overwrite=overwrite): (image_path_item, preview_path_item)
+                    for image_path_item, mask_path_item, preview_path_item in job_list
+                }
+
+                done_count = 0
+                for future in as_completed(future_to_job):
+                    image_path_item, preview_path_item = future_to_job[future]
+                    done_count += 1
+
+                    try:
+                        future.result()
+                        successful_items.append(preview_path_item)
+                        progress.print('[green]Done[/green] {name}'.format(name=os.path.basename(image_path_item)))
+                    except Exception as exception:
+                        failed_items.append(preview_path_item)
+                        progress.print('[red]Error[/red] {name}: {exception}'.format(name=os.path.basename(image_path_item), exception=exception))
+
+                    progress.update(task, description='Creating previews [{done}/{total}]'.format(done=done_count, total=len(job_list)))
+                    progress.advance(task)
 
         # Print the collection of failed cases.
         #

@@ -10,6 +10,9 @@ import argparse
 import os
 import sys
 
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn, BarColumn, TextColumn
+
 #----------------------------------------------------------------------------------------------------
 
 def assemble_jobs(input_path, output_path):
@@ -60,7 +63,7 @@ def collect_arguments():
     Collect command line arguments.
 
     Returns:
-        (str, str, float, bool): The parsed command line arguments: input, output image paths, threshold value, the load all flag, and the overwrite flags.
+        (str, str, float, bool, int): The parsed command line arguments: input, output image paths, threshold value, overwrite flag, and worker count.
     """
 
     # Configure argument parser.
@@ -72,6 +75,7 @@ def collect_arguments():
     argument_parser.add_argument('-o', '--output',    required=True, type=str,   help='output image')
     argument_parser.add_argument('-t', '--threshold', required=True, type=float, help='low threshold value or list (per channel)')
     argument_parser.add_argument('-w', '--overwrite', action='store_true',       help='overwrite existing results')
+    argument_parser.add_argument('-j', '--workers',   required=False, type=int, default=os.cpu_count(), help='number of parallel worker processes (default: cpu count)')
 
     # Parse arguments.
     #
@@ -83,6 +87,7 @@ def collect_arguments():
     parsed_output_path = arguments['output']
     parsed_low_threshold = arguments['threshold']
     parsed_overwrite = arguments['overwrite']
+    parsed_workers = arguments['workers']
 
     # Print parameters.
     #
@@ -91,8 +96,9 @@ def collect_arguments():
     print('Output image: {path}'.format(path=parsed_output_path))
     print('Threshold value: {threshold}'.format(threshold=parsed_low_threshold))
     print('Overwrite existing results: {flag}'.format(flag=parsed_overwrite))
+    print('Worker processes: {workers}'.format(workers=parsed_workers))
 
-    return parsed_input_path, parsed_output_path, parsed_low_threshold, parsed_overwrite
+    return parsed_input_path, parsed_output_path, parsed_low_threshold, parsed_overwrite, parsed_workers
 
 #----------------------------------------------------------------------------------------------------
 
@@ -106,7 +112,7 @@ def main():
 
     # Collect command line arguments.
     #
-    input_path, output_path, low_threshold, overwrite = collect_arguments()
+    input_path, output_path, low_threshold, overwrite, workers = collect_arguments()
 
     # Assemble job pairs: (mrimage path, image path).
     #
@@ -119,9 +125,44 @@ def main():
         #
         dptloggers.init_console_logger(debug=True)
 
-        # Execute jobs.
+        # Execute jobs in parallel with a progress bar.
         #
-        successful_items, failed_items = dptthreshold.low_threshold_image_batch(job_list=job_list, low_threshold=low_threshold, overwrite=overwrite)
+        failed_items = []
+        successful_items = []
+
+        with Progress(SpinnerColumn(),
+                      TextColumn('[progress.description]{task.description}'),
+                      BarColumn(),
+                      TextColumn('[progress.percentage]{task.percentage:>3.0f}%'),
+                      TimeElapsedColumn()) as progress:
+
+            task = progress.add_task('Thresholding [0/{total}]'.format(total=len(job_list)), total=len(job_list))
+
+            with ProcessPoolExecutor(max_workers=workers) as executor:
+                future_to_job = {
+                    executor.submit(dptthreshold.low_threshold_image,
+                                    image=input_path_item,
+                                    output_path=output_path_item,
+                                    low_threshold=low_threshold,
+                                    overwrite=overwrite): (input_path_item, output_path_item)
+                    for input_path_item, output_path_item in job_list
+                }
+
+                done_count = 0
+                for future in as_completed(future_to_job):
+                    input_path_item, output_path_item = future_to_job[future]
+                    done_count += 1
+
+                    try:
+                        future.result()
+                        successful_items.append(output_path_item)
+                        progress.print('[green]Done[/green] {name}'.format(name=os.path.basename(input_path_item)))
+                    except Exception as exception:
+                        failed_items.append(output_path_item)
+                        progress.print('[red]Error[/red] {name}: {exception}'.format(name=os.path.basename(input_path_item), exception=exception))
+
+                    progress.update(task, description='Thresholding [{done}/{total}]'.format(done=done_count, total=len(job_list)))
+                    progress.advance(task)
 
         # Print the collection of failed cases.
         #

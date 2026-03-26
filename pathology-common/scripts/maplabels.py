@@ -10,6 +10,9 @@ import argparse
 import os
 import sys
 
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn, BarColumn, TextColumn
+
 #----------------------------------------------------------------------------------------------------
 
 def assemble_jobs(input_path, output_path):
@@ -68,8 +71,8 @@ def collect_arguments():
     Collect command line arguments.
 
     Returns:
-        (str, str, dict, str, str, bool, bool): The parsed command line arguments: input mask, output mask paths, label mapping, target directory path for data copy,
-            work directory path, keep copied files flag, and the overwrite flag.
+        (str, str, dict, str, str, bool, bool, int): The parsed command line arguments: input mask, output mask paths, label mapping, target directory path for data copy,
+            work directory path, keep copied files flag, overwrite flag, and worker count.
     """
 
     # Configure argument parser.
@@ -85,6 +88,7 @@ def collect_arguments():
     argument_parser.add_argument('-wd', '--work_directory', required=False, type=str, default=None, help='intermediate work directory path')
     argument_parser.add_argument('-k',  '--keep_copies',    action='store_true',                    help='keep copied image files')
     argument_parser.add_argument('-w',  '--overwrite',      action='store_true',                    help='overwrite existing results')
+    argument_parser.add_argument('-j',  '--workers',        required=False, type=int, default=os.cpu_count(), help='number of parallel worker processes (default: cpu count)')
 
     # Parse arguments.
     #
@@ -99,6 +103,7 @@ def collect_arguments():
     parsed_work_directory = arguments['work_directory']
     parsed_keep_copies = arguments['keep_copies']
     parsed_overwrite = arguments['overwrite']
+    parsed_workers = arguments['workers']
 
     # Parse label mapping.
     #
@@ -114,8 +119,9 @@ def collect_arguments():
     print('Work directory path: {path}'.format(path=parsed_work_directory))
     print('Keep copied files: {flag}'.format(flag=parsed_keep_copies))
     print('Overwrite existing results: {flag}'.format(flag=parsed_overwrite))
+    print('Worker processes: {workers}'.format(workers=parsed_workers))
 
-    return parsed_input_path, parsed_output_path, parsed_label_map, parsed_copy_directory, parsed_work_directory, parsed_keep_copies, parsed_overwrite
+    return parsed_input_path, parsed_output_path, parsed_label_map, parsed_copy_directory, parsed_work_directory, parsed_keep_copies, parsed_overwrite, parsed_workers
 
 #----------------------------------------------------------------------------------------------------
 
@@ -129,7 +135,7 @@ def main():
 
     # Collect command line arguments.
     #
-    input_path, output_path, label_map, copy_directory, work_directory, keep_copied_files, overwrite = collect_arguments()
+    input_path, output_path, label_map, copy_directory, work_directory, keep_copied_files, overwrite, workers = collect_arguments()
 
     # Assemble job pairs: (input mask, output mask).
     #
@@ -142,14 +148,47 @@ def main():
         #
         dptloggers.init_console_logger(debug=True)
 
-        # Execute jobs.
+        # Execute jobs in parallel with a progress bar.
         #
-        successful_items, failed_items = dptconversion.map_mask_image_batch(job_list=job_list,
-                                                                            label_map=label_map,
-                                                                            copy_path=copy_directory,
-                                                                            work_path=work_directory,
-                                                                            clear_cache=not keep_copied_files,
-                                                                            overwrite=overwrite)
+        failed_items = []
+        successful_items = []
+
+        with Progress(SpinnerColumn(),
+                      TextColumn('[progress.description]{task.description}'),
+                      BarColumn(),
+                      TextColumn('[progress.percentage]{task.percentage:>3.0f}%'),
+                      TimeElapsedColumn()) as progress:
+
+            task = progress.add_task('Mapping labels [0/{total}]'.format(total=len(job_list)), total=len(job_list))
+
+            with ProcessPoolExecutor(max_workers=workers) as executor:
+                future_to_job = {
+                    executor.submit(dptconversion.map_mask_image,
+                                    mask=input_path_item,
+                                    output_path=output_path_item,
+                                    label_map=label_map,
+                                    copy_path=copy_directory,
+                                    work_path=work_directory,
+                                    clear_cache=not keep_copied_files,
+                                    overwrite=overwrite): (input_path_item, output_path_item)
+                    for input_path_item, output_path_item in job_list
+                }
+
+                done_count = 0
+                for future in as_completed(future_to_job):
+                    input_path_item, output_path_item = future_to_job[future]
+                    done_count += 1
+
+                    try:
+                        future.result()
+                        successful_items.append(output_path_item)
+                        progress.print('[green]Done[/green] {name}'.format(name=os.path.basename(input_path_item)))
+                    except Exception as exception:
+                        failed_items.append(output_path_item)
+                        progress.print('[red]Error[/red] {name}: {exception}'.format(name=os.path.basename(input_path_item), exception=exception))
+
+                    progress.update(task, description='Mapping labels [{done}/{total}]'.format(done=done_count, total=len(job_list)))
+                    progress.advance(task)
 
         # Print the collection of failed cases.
         #

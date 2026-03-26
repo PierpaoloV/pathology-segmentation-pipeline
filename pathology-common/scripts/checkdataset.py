@@ -7,97 +7,57 @@ import digitalpathology.image.io.imagereader as dptimagereader
 import digitalpathology.utils.loggers as dptloggers
 
 import argparse
-import logging
 import numpy as np
+import os
 import sys
+
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn, BarColumn, TextColumn
 
 #----------------------------------------------------------------------------------------------------
 
-def check_data_config(data_config_path, match_spacing, path_override_map, check_spacing, fix_spacing):
+def _check_single_item(image_path, mask_path, labels, match_spacing, check_spacing, fix_spacing):
     """
-    Check the data configuration file.
+    Validate a single image/mask pair from the dataset config.
 
     Args:
-        data_config_path (str): Data config file path.
-        match_spacing (float): Spacing where the image should match its mask.
-        path_override_map (dict): Path overrides for the data config.
-        check_spacing (float): Spacing where the labels in the mask should be checked.
-        fix_spacing (float, None): Spacing to set at level 0 of the mask in case the spacing is missing from it.
+        image_path (str): Image file path.
+        mask_path (str): Mask file path.
+        labels (tuple): Expected label values.
+        match_spacing (float): Spacing where image and mask shapes must match.
+        check_spacing (float): Spacing where mask labels are read and checked.
+        fix_spacing (float, None): Spacing to apply at mask level 0 if missing.
 
     Returns:
-        list, list: List of correct items, list of incorrect items.
+        (str, str or None): Image path and error message, or None if valid.
     """
 
-    # Create logger for printing to the console.
-    #
-    logger = logging.getLogger(name=__name__)
+    image = dptimagereader.ImageReader(image_path=image_path, spacing_tolerance=0.25, input_channels=None, cache_path=None)
+    mask = dptimagereader.ImageReader(image_path=mask_path, spacing_tolerance=0.25, input_channels=None, cache_path=None)
 
-    # Load the data source.
-    #
-    logger.info('Loading: {path}'.format(path=data_config_path))
+    try:
+        if fix_spacing is not None and None in mask.spacings:
+            mask.correct(spacing=fix_spacing, level=0)
 
-    batch_source = dptbatchsource.BatchSource()
-    batch_source.load(file_path=data_config_path)
-    batch_source.update(path_replacements=path_override_map)
+        available_labels = np.unique(mask.content(spacing=check_spacing)).tolist()
 
-    # Check each item.
-    #
-    correct_items = []
-    failed_items = []
+        if set(available_labels) != set(list(labels) + [0]):
+            return image_path, 'Labels mismatch: {available} != {config}'.format(available=available_labels, config=list(labels))
 
-    for source_item in batch_source.items(replace=True):
-        try:
-            logger.info('Processing: {path}'.format(path=source_item.image))
+        if not image.test(spacing=match_spacing):
+            return image_path, 'Missing spacing from image'
 
-            image = dptimagereader.ImageReader(image_path=source_item.image, spacing_tolerance=0.25, input_channels=None, cache_path=None)
-            mask = dptimagereader.ImageReader(image_path=source_item.mask, spacing_tolerance=0.25, input_channels=None, cache_path=None)
+        if not mask.test(spacing=match_spacing):
+            return image_path, 'Missing spacing from mask'
 
-            if fix_spacing is not None and None in mask.spacings:
-                mask.correct(spacing=fix_spacing, level=0)
+        if image.shapes[image.level(spacing=match_spacing)] != mask.shapes[mask.level(spacing=match_spacing)]:
+            return image_path, 'No matching level in mask'
 
-            # Check if the labels match the configured ones.
-            #
-            available_labels = np.unique(mask.content(spacing=check_spacing)).tolist()
-            if set(available_labels) == set(source_item.labels + (0,)):
-                # Check if the image matches the mask at the given spacing.
-                #
-                if image.test(spacing=match_spacing):
-                    if mask.test(spacing=match_spacing):
-                        if image.shapes[image.level(spacing=match_spacing)] == mask.shapes[mask.level(spacing=match_spacing)]:
-                            # Save the result to the list of successful zooms.
-                            #
-                            correct_items.append(source_item.image)
-                        else:
-                            # Missing level from mask: add case to the error collection.
-                            #
-                            failed_items.append(source_item.image)
-                            logger.error('No matching level in mask: {path}'.format(path=source_item.mask))
-                    else:
-                        # Missing image spacing: add case to the error collection.
-                        #
-                        failed_items.append(source_item.image)
-                        logger.error('Missing spacing from mask: {path}'.format(path=source_item.mask))
-                else:
-                    # Missing image spacing: add case to the error collection.
-                    #
-                    failed_items.append(source_item.image)
-                    logger.error('Missing spacing from image: {path}'.format(path=source_item.image))
-            else:
-                # Mask label mismatch: add case to the error collection.
-                #
-                failed_items.append(source_item.image)
-                logger.error('Labels mismatch: {available} != {config} for {path}'.format(available=available_labels, config=source_item.labels, path=source_item.mask))
+        return image_path, None
 
-            mask.close()
-            image.close()
-
-        except Exception as exception:
-            # Add case to the error collection.
-            #
-            failed_items.append(source_item.image)
-            logger.error('Error: {exception}'.format(exception=exception))
-
-    return correct_items, failed_items
+    finally:
+        mask.close()
+        image.close()
 
 #----------------------------------------------------------------------------------------------------
 
@@ -106,7 +66,7 @@ def collect_arguments():
     Collect command line arguments.
 
     Returns:
-        (str, float, dict, float, float): Data file path, image to mask matching spacing, data path override map, label checking spacing, and mask fix spacing.
+        (str, float, dict, float, float, int): Data file path, image to mask matching spacing, data path override map, label checking spacing, mask fix spacing, and worker count.
     """
 
     # Configure argument parser.
@@ -118,6 +78,7 @@ def collect_arguments():
     argument_parser.add_argument('-o', '--override', required=False, type=str,   default=None, help='path overrides')
     argument_parser.add_argument('-c', '--check',    required=False, type=float, default=8.0,  help='checking mask spacing')
     argument_parser.add_argument('-f', '--fix',      required=False, type=float, default=None, help='fix mask spacing at level 0')
+    argument_parser.add_argument('-j', '--workers',  required=False, type=int, default=os.cpu_count(), help='number of parallel worker processes (default: cpu count)')
 
     # Parse arguments.
     #
@@ -130,6 +91,7 @@ def collect_arguments():
     parsed_path_override_map_str = arguments['override']
     parsed_check_spacing = arguments['check']
     parsed_fix_spacing = arguments['fix']
+    parsed_workers = arguments['workers']
 
     # Evaluate expressions
     #
@@ -143,10 +105,11 @@ def collect_arguments():
     print('Path overrides: {map}'.format(map=parsed_path_override_map))
     print('Check spacing: {spacing} um'.format(spacing=parsed_check_spacing))
     print('Fix mask spacing to: {spacing}{measure}'.format(spacing=parsed_fix_spacing, measure=' um' if parsed_fix_spacing is not None else ''))
+    print('Worker processes: {workers}'.format(workers=parsed_workers))
 
     # Return parsed values.
     #
-    return parsed_data_config_path, parsed_match_spacing, parsed_path_override_map, parsed_check_spacing, parsed_fix_spacing
+    return parsed_data_config_path, parsed_match_spacing, parsed_path_override_map, parsed_check_spacing, parsed_fix_spacing, parsed_workers
 
 #----------------------------------------------------------------------------------------------------
 
@@ -155,21 +118,70 @@ def main():
 
     # Collect command line arguments.
     #
-    data_config_path, match_spacing, path_override_map, check_spacing, fix_spacing = collect_arguments()
+    data_config_path, match_spacing, path_override_map, check_spacing, fix_spacing, workers = collect_arguments()
 
     # Init the logger to print to the console.
     #
     dptloggers.init_console_logger(debug=True)
 
-    # Check data configuration file.
+    # Load the data source.
     #
-    correct_items, failed_items = check_data_config(data_config_path=data_config_path,
-                                                    match_spacing=match_spacing,
-                                                    path_override_map=path_override_map,
-                                                    check_spacing=check_spacing,
-                                                    fix_spacing=fix_spacing)
+    batch_source = dptbatchsource.BatchSource()
+    batch_source.load(file_path=data_config_path)
+    batch_source.update(path_replacements=path_override_map)
 
-    # Print the collection of failed cases.
+    # Collect items to check.
+    #
+    items = [(item.image, item.mask, item.labels) for item in batch_source.items(replace=True)]
+
+    print('Checking {count} items...'.format(count=len(items)))
+
+    # Check items in parallel with a progress bar.
+    #
+    correct_items = []
+    failed_items = []
+
+    with Progress(SpinnerColumn(),
+                  TextColumn('[progress.description]{task.description}'),
+                  BarColumn(),
+                  TextColumn('[progress.percentage]{task.percentage:>3.0f}%'),
+                  TimeElapsedColumn()) as progress:
+
+        task = progress.add_task('Checking [0/{total}]'.format(total=len(items)), total=len(items))
+
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            future_to_image = {
+                executor.submit(_check_single_item,
+                                image_path=image_path,
+                                mask_path=mask_path,
+                                labels=labels,
+                                match_spacing=match_spacing,
+                                check_spacing=check_spacing,
+                                fix_spacing=fix_spacing): image_path
+                for image_path, mask_path, labels in items
+            }
+
+            done_count = 0
+            for future in as_completed(future_to_image):
+                done_count += 1
+
+                try:
+                    image_path, error_msg = future.result()
+                    if error_msg is None:
+                        correct_items.append(image_path)
+                        progress.print('[green]OK[/green] {name}'.format(name=os.path.basename(image_path)))
+                    else:
+                        failed_items.append(image_path)
+                        progress.print('[red]Fail[/red] {name}: {error}'.format(name=os.path.basename(image_path), error=error_msg))
+                except Exception as exception:
+                    image_path = future_to_image[future]
+                    failed_items.append(image_path)
+                    progress.print('[red]Error[/red] {name}: {exception}'.format(name=os.path.basename(image_path), exception=exception))
+
+                progress.update(task, description='Checking [{done}/{total}]'.format(done=done_count, total=len(items)))
+                progress.advance(task)
+
+    # Print summary.
     #
     if failed_items:
         print('Failed on {count} items:'.format(count=len(failed_items)))
