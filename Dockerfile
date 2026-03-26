@@ -75,7 +75,8 @@ RUN python3 -m pip install --no-cache-dir --upgrade pip setuptools && \
         httpx==0.27.2 \
         huggingface_hub==0.24.6 \
         opencv-python-headless>=4.6.0.66 \
-        wholeslidedata==0.0.15
+        wholeslidedata==0.0.15 \
+        openpyxl==3.1.5
 
 # -----------------------------------------------------------------------
 # 4. Non-root user
