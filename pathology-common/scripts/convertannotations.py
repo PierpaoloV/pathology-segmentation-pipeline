@@ -10,6 +10,8 @@ import argparse
 import os
 import sys
 
+from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn, BarColumn, TextColumn
+
 #----------------------------------------------------------------------------------------------------
 
 def assemble_jobs(image_path, annotation_path, mask_path):
@@ -199,18 +201,43 @@ def main():
         #
         dptloggers.init_console_logger(debug=True)
 
-        # Execute jobs.
+        # Execute jobs with a progress bar.
         #
-        successful_items, failed_items = dptconversion.create_annotation_mask_batch(job_list=job_list,
-                                                                                    label_map=label_map,
-                                                                                    conversion_order=conversion_order,
-                                                                                    conversion_spacing=pixel_spacing,
-                                                                                    spacing_tolerance=spacing_tolerance,
-                                                                                    strict=strict,
-                                                                                    accept_all_empty=empty_ok,
-                                                                                    work_path=work_directory,
-                                                                                    clear_cache=not keep_copied_files,
-                                                                                    overwrite=overwrite)
+        failed_items = []
+        successful_items = []
+
+        with Progress(SpinnerColumn(),
+                      TextColumn('[progress.description]{task.description}'),
+                      BarColumn(),
+                      TextColumn('[progress.percentage]{task.percentage:>3.0f}%'),
+                      TimeElapsedColumn()) as progress:
+
+            task = progress.add_task('Converting...', total=len(job_list))
+
+            for image_path, annotation_path, output_path in job_list:
+                progress.update(task, description='[cyan]{name}[/cyan]'.format(name=os.path.basename(annotation_path)))
+
+                try:
+                    dptconversion.create_annotation_mask(image=image_path,
+                                                         annotation=annotation_path,
+                                                         label_map=label_map,
+                                                         conversion_order=conversion_order,
+                                                         conversion_spacing=pixel_spacing,
+                                                         spacing_tolerance=spacing_tolerance,
+                                                         output_path=output_path,
+                                                         strict=strict,
+                                                         accept_all_empty=empty_ok,
+                                                         work_path=work_directory,
+                                                         clear_cache=not keep_copied_files,
+                                                         overwrite=overwrite)
+
+                    successful_items.append(output_path)
+
+                except Exception as exception:
+                    failed_items.append(output_path)
+                    progress.print('[red]Error on {path}: {exception}[/red]'.format(path=output_path, exception=exception))
+
+                progress.advance(task)
 
         # Print the collection of failed cases.
         #
