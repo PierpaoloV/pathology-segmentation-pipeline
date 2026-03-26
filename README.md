@@ -6,7 +6,7 @@ A Docker-based pipeline for training and deploying deep learning segmentation mo
 ![PyTorch](https://img.shields.io/badge/PyTorch-2.4.1-orange)
 ![CUDA](https://img.shields.io/badge/CUDA-12.4-green)
 ![Docker](https://img.shields.io/badge/Docker-GPU-informational)
-![License](https://img.shields.io/badge/License-MIT-lightgrey)
+![License](https://img.shields.io/badge/License-Apache%202.0-lightgrey)
 
 ---
 
@@ -237,4 +237,4 @@ Edit the `CONFIGURATION` section at the top of the file before running.
 
 ## License
 
-MIT
+Apache License 2.0 — see [LICENSE](LICENSE) for details.
