@@ -1,6 +1,6 @@
 # -----------------------------------------------------------------------
 # CUDA 12.4 runtime (not devel) on Ubuntu 22.04 LTS
-# Python 3.11 | PyTorch 2.4.1+cu124 | ASAP 2.2 Nightly
+# Python 3.10 | PyTorch 2.4.1+cu124 | ASAP 2.2 Nightly
 # -----------------------------------------------------------------------
 FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
 
@@ -8,17 +8,13 @@ ENV DEBIAN_FRONTEND=noninteractive \
     TZ=Europe/Amsterdam
 
 # -----------------------------------------------------------------------
-# 1. System runtime libraries + Python 3.11
+# 1. System runtime libraries + Python 3.10 (Ubuntu 22.04 default)
 #    Cleanup is inside the same RUN so the apt cache is never committed.
 # -----------------------------------------------------------------------
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        software-properties-common ca-certificates && \
-    add-apt-repository ppa:deadsnakes/ppa && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends \
-        # Python 3.11
-        python3.11 python3.11-dev \
+        # Python 3.10 (Ubuntu 22.04 default)
+        python3-pip python3-dev python-is-python3 \
         # Utilities
         curl git openssh-server sudo pv \
         # OpenGL / threading (PyTorch, OpenCV, ASAP)
@@ -35,33 +31,32 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # -----------------------------------------------------------------------
-# 2. Bootstrap pip for Python 3.11 and set as default python3
-# -----------------------------------------------------------------------
-RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python3.11 && \
-    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
-
-# -----------------------------------------------------------------------
-# 3. ASAP 2.2 Nightly (Ubuntu 22.04)
-#    dpkg -i ... || apt-get -f install -y  resolves missing deps correctly
-#    instead of silently swallowing failures with || true.
+# 2. ASAP 2.2 Nightly (Ubuntu 22.04, Python 3.10 bindings)
+#    curl -L follows redirects; apt-get install resolves deps correctly.
+#    A .pth file registers /opt/ASAP/bin in Python's path reliably.
 # -----------------------------------------------------------------------
 ARG ASAP_URL=https://github.com/computationalpathologygroup/ASAP/releases/download/ASAP-2.2-(Nightly)/ASAP-2.2-Ubuntu2204.deb
-RUN curl -fsSL -o /tmp/ASAP.deb "${ASAP_URL}" && \
-    dpkg -i /tmp/ASAP.deb || apt-get install -f -y && \
+RUN apt-get update && \
+    curl -L "${ASAP_URL}" -o /tmp/ASAP.deb && \
+    apt-get install --assume-yes /tmp/ASAP.deb && \
+    SITE_PACKAGES=$(python3 -c "import sysconfig; print(sysconfig.get_paths()['purelib'])") && \
+    printf "/opt/ASAP/bin/\n" > "${SITE_PACKAGES}/asap.pth" && \
     rm /tmp/ASAP.deb && \
+    apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
 # -----------------------------------------------------------------------
-# 4. Python packages — single layer, no pip cache
+# 3. Python packages — single layer, no pip cache
 #    PyTorch is installed first (separate index-url) then the rest.
 #    albumentations pinned to 1.4.x: 2.x has breaking API changes that
 #    would require updates to training code before upgrading.
 # -----------------------------------------------------------------------
-RUN python3.11 -m pip install --no-cache-dir \
+RUN python3 -m pip install --no-cache-dir --upgrade pip setuptools && \
+    python3 -m pip install --no-cache-dir \
+        --index-url https://download.pytorch.org/whl/cu124 \
         torch==2.4.1 \
-        torchvision==0.19.1 \
-        --index-url https://download.pytorch.org/whl/cu124 && \
-    python3.11 -m pip install --no-cache-dir \
+        torchvision==0.19.1 && \
+    python3 -m pip install --no-cache-dir \
         numpy==1.26.4 \
         pandas==2.2.2 \
         matplotlib==3.9.0 \
@@ -75,26 +70,22 @@ RUN python3.11 -m pip install --no-cache-dir \
         shapely==2.0.6 \
         rdp==0.8 \
         jupyterlab==4.2.5 \
-        httpx<0.28.0 \
+
+
+        httpx==0.27.2 \
         huggingface_hub==0.24.6 \
-        # Pre-install headless OpenCV to win the conflict resolution when slide2vec
-        # is installed later: hs2p requires opencv-python (full) while wholeslidedata
-        # requires opencv-python-headless. Both conflict; headless is correct for
-        # server/Docker use. Pre-installing it here makes pip treat it as satisfying
-        # the opencv-python requirement from hs2p.
         opencv-python-headless>=4.6.0.66 \
-        # wholeslidedata pinned to <0.0.16 to match the slide2vec constraint.
         wholeslidedata==0.0.15
 
 # -----------------------------------------------------------------------
-# 5. Non-root user
+# 4. Non-root user
 # -----------------------------------------------------------------------
 RUN useradd -m -s /bin/bash user && \
     echo "user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
     chown -R user:user /home/user/
 
 # -----------------------------------------------------------------------
-# 6. Source code
+# 5. Source code
 #    Models are NOT baked in — they are downloaded from HuggingFace Hub
 #    at container startup by download_models.py (see execute.sh).
 #    Mount a host directory to /home/user/source/models to cache them
@@ -112,9 +103,9 @@ RUN mkdir -p /home/user/source/models && \
     chown -R user:user /home/user/source/models
 
 # -----------------------------------------------------------------------
-# 7. Environment
+# 6. Environment
 # -----------------------------------------------------------------------
-ENV PYTHONPATH="/opt/ASAP/bin:/home/user/source/pathology-common:/home/user/source/pathology-fast-inference" \
+ENV PYTHONPATH="/home/user/source/pathology-common:/home/user/source/pathology-fast-inference" \
     MPLBACKEND="Agg"
 
 STOPSIGNAL SIGINT
