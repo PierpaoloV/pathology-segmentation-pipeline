@@ -1,0 +1,40 @@
+model:
+    backbone: 'efficientnetb0'
+    encoder_weights: 'imagenet'
+    activation: 'sigmoid'
+    learning_rate: 0.0005 
+sampler:
+    training:
+        iterations: 100
+        label_dist:
+            1: 1.0
+            2: 3.0
+        label_map:
+            1: 0
+            2: 1
+        patch_shapes:
+            0.5: [256,256]
+        mask_spacing: 2.0
+        sampler_count: 15
+        label_mode: 'load'
+    validation:
+        iterations: 1000
+        label_dist:
+            1: 1.0
+            2: 3.0
+        label_map:
+            1: 0
+            2: 1
+        patch_shapes:
+            0.5: [256,256]
+        mask_spacing: 2.0
+        sampler_count: 7
+        label_mode: 'load'
+training:
+    training_batch_size: 2
+    validation_batch_size: 1
+    epochs: 500
+    stop_plateau: 40
+    lr_plateau: 10
+    lr_reduction_factor: 0.5
+        

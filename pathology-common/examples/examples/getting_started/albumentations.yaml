@@ -1,0 +1,54 @@
+__version__: 0.5.2
+transform:
+  __class_fullname__: albumentations.core.composition.Compose
+  additional_targets: {}
+  bbox_params: null
+  keypoint_params: null
+  p: 1.0
+  transforms:
+  - __class_fullname__: albumentations.augmentations.transforms.RandomBrightness
+    always_apply: false
+    limit:
+    - -0.5
+    - 0.5
+    p: 0.2
+  - __class_fullname__: albumentations.augmentations.transforms.JpegCompression
+    always_apply: false
+    p: 0.15
+    quality_lower: 85
+    quality_upper: 100
+  - __class_fullname__: albumentations.augmentations.transforms.HueSaturationValue
+    always_apply: false
+    hue_shift_limit:
+    - -20
+    - 20
+    p: 0.2
+    sat_shift_limit:
+    - -30
+    - 30
+    val_shift_limit:
+    - -20
+    - 20
+  - __class_fullname__: albumentations.augmentations.transforms.RandomContrast
+    always_apply: false
+    limit:
+    - -0.2
+    - 0.2
+    p: 0.2
+  - __class_fullname__: albumentations.augmentations.transforms.HorizontalFlip
+    always_apply: false
+    p: 0.5
+  - __class_fullname__: albumentations.augmentations.transforms.ElasticTransform
+    alpha: 25
+    alpha_affine: 50
+    always_apply: false
+    approximate: false
+    border_mode: 4
+    interpolation: 1
+    mask_value: null
+    p: 0.15
+    sigma: 50
+    value: null
+  - __class_fullname__: albumentations.augmentations.transforms.VerticalFlip
+    always_apply: false
+    p: 0.5

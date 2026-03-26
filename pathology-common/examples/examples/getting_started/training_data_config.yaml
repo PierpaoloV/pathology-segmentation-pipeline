@@ -1,0 +1,124 @@
+data:
+    training:
+        default:
+        -   image: '{root}/{images}/cb2d976f4.tif'
+            labels:
+            - 1
+            - 2
+            mask: '{root}/{masks}/cb2d976f4.tif'
+        -   image: '{root}/{images}/aaa6a05cc.tif'
+            labels:
+            - 1
+            - 2
+            mask: '{root}/{masks}/aaa6a05cc.tif'
+        -   image: '{root}/{images}/0486052bb.tif'
+            labels:
+            - 1
+            - 2
+            mask: '{root}/{masks}/0486052bb.tif'
+        -   image: '{root}/{images}/095bf7a1f.tif'
+            labels:
+            - 1
+            - 2
+            mask: '{root}/{masks}/095bf7a1f.tif'
+        -   image: '{root}/{images}/54f2eec69.tif'
+            labels:
+            - 1
+            - 2
+            mask: '{root}/{masks}/54f2eec69.tif'
+        -   image: '{root}/{images}/1e2425f28.tif'
+            labels:
+            - 1
+            - 2
+            mask: '{root}/{masks}/1e2425f28.tif'
+        -   image: '{root}/{images}/2f6ecfcdf.tif'
+            labels:
+            - 1
+            - 2
+            mask: '{root}/{masks}/2f6ecfcdf.tif'
+        -   image: '{root}/{images}/e79de561c.tif'
+            labels:
+            - 1
+            - 2
+            mask: '{root}/{masks}/e79de561c.tif'
+        -   image: '{root}/{images}/4ef6695ce.tif'
+            labels:
+            - 1
+            - 2
+            mask: '{root}/{masks}/4ef6695ce.tif'
+        -   image: '{root}/{images}/26dc41664.tif'
+            labels:
+            - 1
+            - 2
+            mask: '{root}/{masks}/26dc41664.tif'
+        -   image: '{root}/{images}/8242609fa.tif'
+            labels:
+            - 1
+            - 2
+            mask: '{root}/{masks}/8242609fa.tif'
+        -   image: '{root}/{images}/afa5e8098.tif'
+            labels:
+            - 1
+            - 2
+            mask: '{root}/{masks}/afa5e8098.tif'
+        -   image: '{root}/{images}/b2dc8411c.tif'
+            labels:
+            - 1
+            - 2
+            mask: '{root}/{masks}/b2dc8411c.tif'
+        -   image: '{root}/{images}/b9a3865fc.tif'
+            labels:
+            - 1
+            - 2
+            mask: '{root}/{masks}/b9a3865fc.tif'
+        -   image: '{root}/{images}/c68fe75ea.tif'
+            labels:
+            - 1
+            - 2
+            mask: '{root}/{masks}/c68fe75ea.tif'
+    validation:
+        default:
+        -   image: '{root}/{images}/VAN0010-LK-160-2-PAS_FFPE.tif'
+            labels:
+            - 1
+            - 2
+            mask: '{root}/{masks}/VAN0010-LK-160-2-PAS_FFPE.tif'
+        -   image: '{root}/{images}/VAN0007-LK-203-103-PAS_registered.tif'
+            labels:
+            - 1
+            - 2
+            mask: '{root}/{masks}/VAN0007-LK-203-103-PAS_registered.tif'
+        -   image: '{root}/{images}/VAN0011-RK-3-10-PAS_registered.tif'
+            labels:
+            - 1
+            - 2
+            mask: '{root}/{masks}/VAN0011-RK-3-10-PAS_registered.tif'
+        -   image: '{root}/{images}/VAN0013-LK-206-2-PAS_FFPE.tif'
+            labels:
+            - 1
+            - 2
+            mask: '{root}/{masks}/VAN0013-LK-206-2-PAS_FFPE.tif'
+        -   image: '{root}/{images}/VAN0014-LK-203-108-PAS_registered.tif'
+            labels:
+            - 1
+            - 2
+            mask: '{root}/{masks}/VAN0014-LK-203-108-PAS_registered.tif'
+        -   image: '{root}/{images}/VAN0016-LK-202-89-PAS_registered.tif'
+            labels:
+            - 1
+            - 2
+            mask: '{root}/{masks}/VAN0016-LK-202-89-PAS_registered.tif'
+        -   image: '{root}/{images}/VAN0016-LK-208-2-PAS_FFPE.tif'
+            labels:
+            - 1
+            - 2
+            mask: '{root}/{masks}/VAN0016-LK-208-2-PAS_FFPE.tif'
+distribution:
+    training: 0.8
+    validation: 0.2
+path:
+    images: images/train
+    masks: masks/gt_masks
+    root: /mnt/netcache/pathology/archives/kidney/HuBMAP
+    stats: ''
+type: distributed
