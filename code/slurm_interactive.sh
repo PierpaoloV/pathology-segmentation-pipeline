@@ -8,7 +8,7 @@
 #SBATCH --output=/home/%u/logs/%j.out
 #SBATCH --no-container-entrypoint
 #SBATCH --container-mounts=/data/pathology:/data/pathology,/data/pa_cpgarchive:/data/pa_cpgarchive
-#SBATCH --container-image="pierpaolov/pathology-segmentation-pipeline:latest"
+#SBATCH --container-image="dockerdex.umcn.nl:5005/pierpaolov/pathology-pipeline:1.0"
 
 mkdir -p /home/${USER}/logs
 
