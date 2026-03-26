@@ -10,6 +10,7 @@ import argparse
 import os
 import sys
 
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn, BarColumn, TextColumn
 
 #----------------------------------------------------------------------------------------------------
@@ -111,6 +112,7 @@ def collect_arguments():
     argument_parser.add_argument('-r',  '--strict',         action='store_true',                      help='stop if unknown annotation group found')
     argument_parser.add_argument('-k',  '--keep_copies',    action='store_true',                      help='keep copied image files')
     argument_parser.add_argument('-w',  '--overwrite',      action='store_true',                      help='overwrite existing results')
+    argument_parser.add_argument('-j',  '--workers',        required=False, type=int, default=os.cpu_count(), help='number of parallel worker processes (default: cpu count)')
 
     # Parse arguments.
     #
@@ -130,6 +132,7 @@ def collect_arguments():
     parsed_strict = arguments['strict']
     parsed_keep_copies = arguments['keep_copies']
     parsed_overwrite = arguments['overwrite']
+    parsed_workers = arguments['workers']
 
     # Evaluate label map and label order descriptors.
     #
@@ -151,6 +154,7 @@ def collect_arguments():
     print('Stop on unknown groups: {flag}'.format(flag=parsed_strict))
     print('Keep copied files: {flag}'.format(flag=parsed_keep_copies))
     print('Overwrite existing results: {flag}'.format(flag=parsed_overwrite))
+    print('Worker processes: {workers}'.format(workers=parsed_workers))
 
     return (parsed_image_path,
             parsed_annotation_path,
@@ -163,7 +167,8 @@ def collect_arguments():
             parsed_empty,
             parsed_strict,
             parsed_keep_copies,
-            parsed_overwrite)
+            parsed_overwrite,
+            parsed_workers)
 
 #----------------------------------------------------------------------------------------------------
 
@@ -188,7 +193,8 @@ def main():
      empty_ok,
      strict,
      keep_copied_files,
-     overwrite) = collect_arguments()
+     overwrite,
+     workers) = collect_arguments()
 
     # Assemble job triplets: (image, annotation, result mask).
     #
@@ -201,7 +207,7 @@ def main():
         #
         dptloggers.init_console_logger(debug=True)
 
-        # Execute jobs with a progress bar.
+        # Execute jobs in parallel with a progress bar.
         #
         failed_items = []
         successful_items = []
@@ -212,32 +218,41 @@ def main():
                       TextColumn('[progress.percentage]{task.percentage:>3.0f}%'),
                       TimeElapsedColumn()) as progress:
 
-            task = progress.add_task('Converting...', total=len(job_list))
+            task = progress.add_task('Converting [{done}/{total}]'.format(done=0, total=len(job_list)), total=len(job_list))
 
-            for image_path, annotation_path, output_path in job_list:
-                progress.update(task, description='[cyan]{name}[/cyan]'.format(name=os.path.basename(annotation_path)))
+            with ProcessPoolExecutor(max_workers=workers) as executor:
+                future_to_job = {
+                    executor.submit(dptconversion.create_annotation_mask,
+                                    image=image_path,
+                                    annotation=annotation_path,
+                                    label_map=label_map,
+                                    conversion_order=conversion_order,
+                                    conversion_spacing=pixel_spacing,
+                                    spacing_tolerance=spacing_tolerance,
+                                    output_path=output_path,
+                                    strict=strict,
+                                    accept_all_empty=empty_ok,
+                                    work_path=work_directory,
+                                    clear_cache=not keep_copied_files,
+                                    overwrite=overwrite): (annotation_path, output_path)
+                    for image_path, annotation_path, output_path in job_list
+                }
 
-                try:
-                    dptconversion.create_annotation_mask(image=image_path,
-                                                         annotation=annotation_path,
-                                                         label_map=label_map,
-                                                         conversion_order=conversion_order,
-                                                         conversion_spacing=pixel_spacing,
-                                                         spacing_tolerance=spacing_tolerance,
-                                                         output_path=output_path,
-                                                         strict=strict,
-                                                         accept_all_empty=empty_ok,
-                                                         work_path=work_directory,
-                                                         clear_cache=not keep_copied_files,
-                                                         overwrite=overwrite)
+                done_count = 0
+                for future in as_completed(future_to_job):
+                    annotation_path, output_path = future_to_job[future]
+                    done_count += 1
 
-                    successful_items.append(output_path)
+                    try:
+                        future.result()
+                        successful_items.append(output_path)
+                        progress.print('[green]Done[/green] {name}'.format(name=os.path.basename(annotation_path)))
+                    except Exception as exception:
+                        failed_items.append(output_path)
+                        progress.print('[red]Error[/red] {name}: {exception}'.format(name=os.path.basename(annotation_path), exception=exception))
 
-                except Exception as exception:
-                    failed_items.append(output_path)
-                    progress.print('[red]Error on {path}: {exception}[/red]'.format(path=output_path, exception=exception))
-
-                progress.advance(task)
+                    progress.update(task, description='Converting [{done}/{total}]'.format(done=done_count, total=len(job_list)))
+                    progress.advance(task)
 
         # Print the collection of failed cases.
         #
