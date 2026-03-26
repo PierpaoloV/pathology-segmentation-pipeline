@@ -154,16 +154,16 @@ class ImageReader(object):
         # Configure the data type and the appropriate loader function for it.
         #
         image_dtype = mr_image.getDataType()
-        if image_dtype == mir.UChar:
+        if image_dtype == mir.DataType_UChar:
             self.__dtype = np.uint8
             self.__patch = mr_image.getUCharPatch
-        elif image_dtype == mir.UInt16:
+        elif image_dtype == mir.DataType_UInt16:
             self.__dtype = np.uint16
             self.__patch = mr_image.getUInt16Patch
-        elif image_dtype == mir.UInt32:
+        elif image_dtype == mir.DataType_UInt32:
             self.__dtype = np.uint32
             self.__patch = mr_image.getUInt32Patch
-        elif image_dtype == mir.Float:
+        elif image_dtype == mir.DataType_Float:
             self.__dtype = np.float32
             self.__patch = mr_image.getFloatPatch
         else:

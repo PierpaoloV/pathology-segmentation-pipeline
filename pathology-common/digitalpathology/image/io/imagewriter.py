@@ -179,13 +179,13 @@ class ImageWriter(object):
         # Convert data type.
         #
         if dtype == np.uint8:
-            dtype_param = mir.UChar
+            dtype_param = mir.DataType_UChar
         elif dtype == np.uint16:
-            dtype_param = mir.UInt16
+            dtype_param = mir.DataType_UInt16
         elif dtype == np.uint32:
-            dtype_param = mir.UInt32
+            dtype_param = mir.DataType_UInt32
         elif dtype == np.float32:
-            dtype_param = mir.Float
+            dtype_param = mir.DataType_Float
         else:
             raise dptimageerrors.InvalidDataTypeError(self.__file(), dtype)
 
