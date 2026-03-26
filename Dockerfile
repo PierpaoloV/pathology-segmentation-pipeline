@@ -70,8 +70,6 @@ RUN python3 -m pip install --no-cache-dir --upgrade pip setuptools && \
         shapely==2.0.6 \
         rdp==0.8 \
         jupyterlab==4.2.5 \
-
-
         httpx==0.27.2 \
         huggingface_hub==0.24.6 \
         opencv-python-headless>=4.6.0.66 \
