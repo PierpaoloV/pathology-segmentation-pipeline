@@ -2,7 +2,7 @@
 # CUDA 12.4 runtime (not devel) on Ubuntu 22.04 LTS
 # Python 3.10 | PyTorch 2.4.1+cu124 | ASAP 2.2 Nightly
 # -----------------------------------------------------------------------
-FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+FROM --platform=linux/amd64 nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
     TZ=Europe/Amsterdam
@@ -51,12 +51,13 @@ RUN apt-get update && \
 #    albumentations pinned to 1.4.x: 2.x has breaking API changes that
 #    would require updates to training code before upgrading.
 # -----------------------------------------------------------------------
-RUN python3 -m pip install --no-cache-dir --upgrade pip setuptools && \
-    python3 -m pip install --no-cache-dir \
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python3 -m pip install --upgrade pip setuptools && \
+    python3 -m pip install \
         --index-url https://download.pytorch.org/whl/cu124 \
         torch==2.4.1 \
         torchvision==0.19.1 && \
-    python3 -m pip install --no-cache-dir \
+    python3 -m pip install \
         numpy==1.26.4 \
         pandas==2.2.2 \
         matplotlib==3.9.0 \
