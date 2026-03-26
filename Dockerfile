@@ -75,6 +75,7 @@ RUN python3.11 -m pip install --no-cache-dir \
         shapely==2.0.6 \
         rdp==0.8 \
         jupyterlab==4.2.5 \
+        httpx<0.28.0 \
         huggingface_hub==0.24.6 \
         # Pre-install headless OpenCV to win the conflict resolution when slide2vec
         # is installed later: hs2p requires opencv-python (full) while wholeslidedata
