@@ -192,19 +192,19 @@ class ImageWriter(object):
         # Convert color coding.
         #
         if coding == 'monochrome':
-            coding_param = mir.Monochrome
+            coding_param = mir.ColorType_Monochrome
             channel_count = 1
         elif coding == 'rgb':
-            coding_param = mir.RGB
+            coding_param = mir.ColorType_RGB
             channel_count = 3
         elif coding == 'argb':
-            coding_param = mir.ARGB
+            coding_param = mir.ColorType_RGBA
             channel_count = 4
         elif coding == 'indexed':
             if indexed_channels < 1:
                 raise dptimageerrors.InvalidIndexedChannelsError(self.__file(), indexed_channels)
 
-            coding_param = mir.Indexed
+            coding_param = mir.ColorType_Indexed
             channel_count = indexed_channels
         else:
             raise dptimageerrors.InvalidColorTypeError(self.__file(), coding)
@@ -213,11 +213,11 @@ class ImageWriter(object):
         #
         if compression is not None:
             if compression == 'raw':
-                compression_param = mir.RAW
+                compression_param = mir.Compression_RAW
             elif compression == 'jpeg':
-                compression_param = mir.JPEG
+                compression_param = mir.Compression_JPEG
             elif compression == 'lzw':
-                compression_param = mir.LZW
+                compression_param = mir.Compression_LZW
             else:
                 raise dptimageerrors.InvalidCompressionMethodError(self.__file(), compression)
 
@@ -226,19 +226,19 @@ class ImageWriter(object):
             # Derive the compression method from the color coding.
             #
             if coding in ('monochrome', 'indexed'):
-                compression_param = mir.LZW
+                compression_param = mir.Compression_LZW
                 compression_save = 'lzw'
             else:
-                compression_param = mir.JPEG
+                compression_param = mir.Compression_JPEG
                 compression_save = 'jpeg'
 
         # Convert interpolation method.
         #
         if interpolation is not None:
             if interpolation == 'nearest':
-                interpolation_param = mir.NearestNeighbor
+                interpolation_param = mir.Interpolation_NearestNeighbor
             elif interpolation == 'linear':
-                interpolation_param = mir.Linear
+                interpolation_param = mir.Interpolation_Linear
             else:
                 raise dptimageerrors.InvalidInterpolationMethodError(self.__file(), interpolation)
 
@@ -247,10 +247,10 @@ class ImageWriter(object):
             # Derive the interpolation method from the color coding.
             #
             if coding == 'monochrome':
-                interpolation_param = mir.NearestNeighbor
+                interpolation_param = mir.Interpolation_NearestNeighbor
                 interpolation_save = 'nearest'
             else:
-                interpolation_param = mir.Linear
+                interpolation_param = mir.Interpolation_Linear
                 interpolation_save = 'linear'
 
         # Check tile size.

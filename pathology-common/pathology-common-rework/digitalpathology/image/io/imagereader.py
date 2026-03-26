@@ -172,13 +172,13 @@ class ImageReader(object):
         # Configure the pixel color coding method.
         #
         image_color_type = mr_image.getColorType()
-        if image_color_type == mir.Monochrome:
+        if image_color_type == mir.ColorType_Monochrome:
             self.__coding = 'monochrome'
-        elif image_color_type == mir.RGB:
+        elif image_color_type == mir.ColorType_RGB:
             self.__coding = 'rgb'
-        elif image_color_type == mir.ARGB:
+        elif image_color_type == mir.ColorType_RGBA:
             self.__coding = 'argb'
-        elif image_color_type == mir.Indexed:
+        elif image_color_type == mir.ColorType_Indexed:
             self.__coding = 'indexed'
         else:
             raise dptimageerrors.UnknownImageColorTypeError(self.__file(), image_color_type)
