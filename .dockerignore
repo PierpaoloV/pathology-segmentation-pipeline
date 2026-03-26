@@ -1,0 +1,11 @@
+*.ipynb
+*.csv
+*.xlsx
+*.rar
+*.zip
+*.pptx
+*.DS_Store
+Dockerfile_old
+CLAUDE.md
+# Models are downloaded at runtime from HuggingFace — exclude from build context
+models/
