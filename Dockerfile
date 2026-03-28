@@ -14,6 +14,8 @@
 #                          minor regression from our 1.4.x — avoid 2.x still holds)
 #   tensorflow-cpu 2.12.0 (sidesteps CUDA 11.8 vs 12.4 incompatibility;
 #                          CellViT++ is PyTorch-based, TF used for utils only)
+#   segmentation-models-pytorch 0.5.0  (0.4+ supports timm>=1.0, resolving the
+#                          conflict with slide2vec's timm==1.0.8 requirement)
 # ============================================================================
 
 
@@ -87,7 +89,7 @@ RUN python3 -m pip install --no-cache-dir \
 RUN python3 -m pip install --no-cache-dir \
         shapely==2.0.6 \
         albumentations==1.3.1 \
-        segmentation-models-pytorch==0.3.4 \
+        segmentation-models-pytorch==0.5.0 \
         rdp==0.8 \
         seaborn \
         wholeslidedata==0.0.15 \

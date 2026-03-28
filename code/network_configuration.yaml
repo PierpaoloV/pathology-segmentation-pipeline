@@ -1,6 +1,59 @@
 model:
     modelname: 'unet'
-    backbone: 'efficientnet-b0' # 'timm-mobilenetv3_large_100' # 'se_resnext50_32x4d' # 'mobilenet_v2' # 'se_resnext50_32x4d' #'efficientnet-b0' 
+    # ---- available model architectures ----
+    # 'unet' | 'unet-plus' | 'manet' | 'linknet' | 'fpn' | 'pspnet' | 'deeplabv3' | 'deeplabv3+' | 'pan'
+
+    backbone: 'efficientnet-b0'
+    # ---- available backbones ----
+    #
+    # ResNet / ResNeXt
+    #   'resnet18' | 'resnet34' | 'resnet50' | 'resnet101' | 'resnet152'
+    #   'resnext50_32x4d' | 'resnext101_32x8d'
+    #
+    # SE-Net
+    #   'senet154'
+    #   'se_resnet50' | 'se_resnet101' | 'se_resnet152'
+    #   'se_resnext50_32x4d' | 'se_resnext101_32x4d'
+    #
+    # DPN (Dual Path Networks)
+    #   'dpn68' | 'dpn68b' | 'dpn92' | 'dpn98' | 'dpn107' | 'dpn131'
+    #
+    # VGG
+    #   'vgg11' | 'vgg11_bn' | 'vgg13' | 'vgg13_bn'
+    #   'vgg16' | 'vgg16_bn' | 'vgg19' | 'vgg19_bn'
+    #
+    # DenseNet
+    #   'densenet121' | 'densenet169' | 'densenet201' | 'densenet161'
+    #
+    # Inception
+    #   'inceptionresnetv2' | 'inceptionv4'
+    #
+    # EfficientNet (pytorch-efficientnet)
+    #   'efficientnet-b0' | 'efficientnet-b1' | 'efficientnet-b2' | 'efficientnet-b3'
+    #   'efficientnet-b4' | 'efficientnet-b5' | 'efficientnet-b6' | 'efficientnet-b7'
+    #
+    # MobileNet
+    #   'mobilenet_v2'
+    #
+    # MobileOne
+    #   'mobileone_s0' | 'mobileone_s1' | 'mobileone_s2' | 'mobileone_s3' | 'mobileone_s4'
+    #
+    # Xception
+    #   'xception'
+    #
+    # Mix Transformer / SegFormer encoders
+    #   'mit_b0' | 'mit_b1' | 'mit_b2' | 'mit_b3' | 'mit_b4' | 'mit_b5'
+    #
+    # timm EfficientNet (deprecated timm- prefix, still works in 0.5.0)
+    #   'timm-efficientnet-b0' ... 'timm-efficientnet-b8' | 'timm-efficientnet-l2'
+    #   'timm-tf_efficientnet_lite0' ... 'timm-tf_efficientnet_lite4'
+    #
+    # timm universal prefix (smp 0.4+) — any timm model via 'tu-<timm_name>'
+    # Use encoder_weights: true (not 'imagenet') to load timm pretrained weights.
+    #   'tu-mobilenetv3_large_100' | 'tu-convnext_base' | 'tu-efficientnet_b0'
+    #   'tu-resnet50' | 'tu-skresnext50_32x4d' | 'tu-res2net50_26w_4s'
+    #   Any model name from timm is valid: https://huggingface.co/timm
+
     encoder_weights: 'imagenet'
     loss: 'lovasz'
     learning_rate: 0.0001 

@@ -23,6 +23,12 @@ docker run --gpus all \
   pathology-pipeline python3 /home/user/source/download_models.py [tb|epithelium|multi-tissue|all]
 ```
 
+### Upload Trained Models to HuggingFace
+```bash
+# Edit the CONFIGURATION section at the top of the file first
+python3 upload_models_to_hf.py
+```
+
 ### Run Full Inference Pipeline
 ```bash
 docker run --gpus all \
@@ -32,6 +38,15 @@ docker run --gpus all \
   pathology-pipeline \
   bash /home/user/source/code/start_characterization.sh /home/user/data/slide.tif
 ```
+
+Inference outputs are written to:
+
+| Path | Content |
+|------|---------|
+| `/home/user/process/tb/` | Tissue/background masks |
+| `/home/user/process/epithelium/` | Epithelium segmentation masks |
+| `/home/user/process/tumor/` | Tumour masks |
+| `/home/user/process/concave_hull_masks/` | Concave hull annotations |
 
 ### Train a Model
 ```bash
@@ -43,6 +58,8 @@ docker run --gpus all -it pathology-pipeline \
   --output_path /path/to/output
 ```
 
+At startup, training interactively prompts to confirm or change the segmentation architecture before proceeding. Training progress is shown via Rich live progress bars with per-epoch loss, IoU, and LR.
+
 ### Evaluate (Dice/Jaccard)
 ```bash
 docker run --gpus all pathology-pipeline \
@@ -51,7 +68,9 @@ docker run --gpus all pathology-pipeline \
   --ground_truth_path "/gt/{image}.tif" \
   --classes "{'background': 1, 'epithelium': 2, 'stroma': 3}" \
   --spacing 1.0 \
-  --output_path /results/scores.yaml
+  --output_path /results/scores.yaml \
+  --mapping "{'background': 1, 'epithelium': 2, 'stroma': 3}" \
+  --all_cm
 ```
 
 ### Interactive Container (JupyterLab on port 8888)
@@ -78,12 +97,15 @@ Core library (~115 files). Key subdirectories:
 - `adapters/` — Augmentation (Albumentations), normalization, label adapters
 - `generator/batch/`, `generator/patch/`, `generator/mask/` — Patch extraction & sampling
 
+Also contains `pathology-common/scripts/` with 19 CLI data-prep tools including `convertannotations.py`, `extractpatches.py`, `createdataconfig.py`, `createfolds.py`, `preprocessmasks.py`, `combinemasks.py`, and others for dataset preparation workflows.
+
 ### `pathology-fast-inference/fastinference/`
 Async engine for GPU inference on large WSIs. Key files:
 - `async_wsi_consumer.py` — Orchestrates readers → processor → writers
 - `async_tile_processor.py` / `torch_processor.py` — GPU inference (single model or ensemble)
 - `async_wsi_reader.py` / `async_wsi_writer.py` — Parallel tile I/O
-- `scripts/applynetwork_multiproc.py` — CLI entry point
+- `scripts/applynetwork_multiproc.py` — CLI entry point for segmentation inference
+- `gan_inference/` — CycleGAN-based stain transfer inference (`scripts/applygan_multiproc.py`)
 
 ### `code/`
 - `start_characterization.sh` — Orchestrates the 3-stage inference pipeline
@@ -96,7 +118,28 @@ Async engine for GPU inference on large WSIs. Key files:
 
 ## Configuration
 
-Model architecture, loss function, and training schedule are controlled by `code/network_configuration.yaml`. Supported architectures (via segmentation-models-pytorch): `unet`, `unet-plus`, `manet`, `linknet`, `fpn`, `pspnet`, `deeplabv3`, `deeplabv3+`, `pan`. Backbone selection is also configurable (e.g., EfficientNet-B0, MobileNetV3, SE-ResNeXt50).
+Model architecture, loss function, training schedule, and patch sampling are controlled by `code/network_configuration.yaml`. Key sections:
+
+```yaml
+model:
+    modelname: 'unet'          # unet, unet-plus, manet, linknet, fpn, pspnet, deeplabv3, deeplabv3+, pan
+    backbone: 'efficientnet-b0' # or mobilenet_v2, timm-mobilenetv3_large_100, se_resnext50_32x4d
+    loss: 'lovasz'             # lovasz, dice, cc
+    learning_rate: 0.0001
+    learning_rate_schedule: 'plateau'
+sampler:
+    training:
+        iterations: 1250
+        label_dist: {1: 1.0, 2: 2.0, 3: 5.0}  # sampling weight per class label
+        label_map: {1: 0, 2: 1, 3: 2}          # remap annotation labels to model outputs
+        patch_shapes: {1.0: [512, 512]}          # spacing (µm): [H, W]
+        mask_spacing: 2.0
+training:
+    epochs: 100
+    stop_plateau: 50           # early stopping patience
+    training_batch_size: 10
+    mixed_precision: true
+```
 
 ## Container Details
 
@@ -114,3 +157,18 @@ Models are on HuggingFace Hub at `PierpaoloV93/pathology-segmentation-models`. `
 ## No Test Suite
 
 There are no automated tests or CI/CD pipelines. `awesomedice.py` serves as the primary validation tool (run manually against held-out data).
+
+## Known Dependency Conflicts
+
+### `timm` version conflict in the unified image (`Dockerfile`)
+
+`segmentation-models-pytorch==0.3.4` (used by our pipeline) is only compatible with `timm<1.0` — it relies on internal timm APIs (`timm.models.layers`, etc.) that were removed/restructured in timm 1.0.
+
+`slide2vec` requires `timm>=1.0` (currently pinned to `timm==1.0.8` in the unified Dockerfile).
+
+These requirements are **mutually exclusive**. As of now the unified image installs `timm==1.0.8` last, which means `segmentation-models-pytorch` will fail at import time inside the unified container. The non-unified `Dockerfile.backup` is unaffected because it does not install slide2vec or pin timm.
+
+**Possible resolutions (not yet implemented):**
+- Upgrade to `segmentation-models-pytorch>=0.4.x` which added timm 1.x compatibility — but requires auditing all training/inference code for API changes.
+- Patch the `segmentation-models-pytorch` 0.3.4 source at build time to use the updated timm API.
+- Keep segmentation inference in a separate container (i.e., do not unify).
