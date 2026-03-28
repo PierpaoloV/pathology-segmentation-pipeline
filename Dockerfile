@@ -64,7 +64,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
         scikit-learn==1.5.1 \
         scikit-image==0.24.0 \
         scipy==1.13.1 \
-        segmentation-models-pytorch==0.3.4 \
+        segmentation-models-pytorch==0.5.0 \
         albumentations==1.4.14 \
         wandb==0.17.9 \
         rich==13.7.1 \
