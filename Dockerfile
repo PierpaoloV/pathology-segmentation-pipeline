@@ -230,6 +230,8 @@ RUN apt-get update && \
 # -----------------------------------------------------------------------
 COPY --from=build /usr/local/lib/python3.10/dist-packages /usr/local/lib/python3.10/dist-packages
 COPY --from=build /usr/local/bin /usr/local/bin
+COPY --from=build /usr/local/share/jupyter /usr/local/share/jupyter
+COPY --from=build /usr/local/etc/jupyter /usr/local/etc/jupyter
 
 # -----------------------------------------------------------------------
 # Register nvimgcodec so cucim can use GPU-accelerated JPEG decoding
