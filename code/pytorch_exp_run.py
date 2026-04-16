@@ -136,7 +136,8 @@ def init_model(model_param: dict, training_param: dict, num_classes: int):
     else:
         raise ValueError(f"Unknown loss '{model_param['loss']}'. Choose from: cc, lovasz, dice")
 
-    optimizer = torch.optim.Adam([dict(params=model.parameters(), lr=model_param['learning_rate'])])
+    optimizer = torch.optim.Adam([dict(params=model.parameters(), lr=model_param['learning_rate'])],
+                                  weight_decay=model_param.get('weight_decay', 0.0))
 
     if model_param['learning_rate_schedule'] == 'plateau':
         schedular = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer,
@@ -308,6 +309,7 @@ def main():
                                                       num_classes)
 
     wandb.config = {"learning_rate": model_parameters['learning_rate'],
+                    "weight_decay": model_parameters.get('weight_decay', 0.0),
                     "backbone": model_parameters["backbone"],
                     "encoder_weights": model_parameters["encoder_weights"],
                     "epochs": training_parameters['epochs'],
@@ -325,6 +327,7 @@ def main():
         f"({model_parameters['backbone']})  |  "
         f"[bold]Loss:[/bold] {model_parameters['loss']}  |  "
         f"[bold]LR:[/bold] {model_parameters['learning_rate']}  |  "
+        f"[bold]WD:[/bold] {model_parameters.get('weight_decay', 0.0)}  |  "
         f"[bold]Epochs:[/bold] {training_parameters['epochs']}  |  "
         f"[bold]Early-stop patience:[/bold] {training_parameters['stop_plateau']}"
     )

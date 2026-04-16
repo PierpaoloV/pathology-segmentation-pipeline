@@ -60,8 +60,8 @@ def collect_arguments():
     Collect command line arguments.
 
     Returns:
-        (str, str, int, float, float, int, str, bool, bool): The parsed command line arguments: input and output image paths, the processing level, processing pixel spacing and pixel
-            spacing tolerance, JPEG quality setting work, directory path, keep copied files flag, and the overwrite flag.
+        (str, str, int, float, float, int, str, bool, bool, bool): The parsed command line arguments: input and output image paths, the processing level, processing pixel spacing and pixel
+            spacing tolerance, JPEG quality setting, work directory path, keep copied files flag, overwrite flag, and thumbnail flag.
     """
 
     # Configure argument parser.
@@ -81,6 +81,7 @@ def collect_arguments():
     argument_parser.add_argument('-wd', '--work_directory', required=False, type=str,   default=None, help='intermediate work directory path')
     argument_parser.add_argument('-k',  '--keep_copies',    action='store_true',                      help='keep copied image files')
     argument_parser.add_argument('-w',  '--overwrite',      action='store_true',                      help='overwrite existing results')
+    argument_parser.add_argument('-tn', '--thumbnail',      action='store_true',                      help='write a flat (non-pyramidal) thumbnail using PIL instead of a multi-resolution TIFF')
 
     # Parse arguments.
     #
@@ -97,6 +98,7 @@ def collect_arguments():
     parsed_work_directory = arguments['work_directory']
     parsed_keep_copies = arguments['keep_copies']
     parsed_overwrite = arguments['overwrite']
+    parsed_thumbnail = arguments['thumbnail']
 
     # Print parameters.
     #
@@ -114,8 +116,9 @@ def collect_arguments():
     print('Work directory path: {path}'.format(path=parsed_work_directory))
     print('Keep copied files: {flag}'.format(flag=parsed_keep_copies))
     print('Overwrite existing results: {overwrite}'.format(overwrite=parsed_overwrite))
+    print('Thumbnail mode: {thumbnail}'.format(thumbnail=parsed_thumbnail))
 
-    return parsed_input_path, parsed_output_path, parsed_level, parsed_pixel_spacing, parsed_spacing_tolerance, parsed_jpeg_quality, parsed_work_directory, parsed_keep_copies, parsed_overwrite
+    return parsed_input_path, parsed_output_path, parsed_level, parsed_pixel_spacing, parsed_spacing_tolerance, parsed_jpeg_quality, parsed_work_directory, parsed_keep_copies, parsed_overwrite, parsed_thumbnail
 
 #----------------------------------------------------------------------------------------------------
 
@@ -129,7 +132,7 @@ def main():
 
     # Collect command line arguments.
     #
-    input_path, output_path, level, spacing, tolerance, jpeg_quality, work_directory, keep_copied_files, overwrite = collect_arguments()
+    input_path, output_path, level, spacing, tolerance, jpeg_quality, work_directory, keep_copied_files, overwrite, thumbnail = collect_arguments()
 
     # Assemble job pairs: (input path, output path).
     #
@@ -144,14 +147,21 @@ def main():
 
         # Execute jobs.
         #
-        successful_items, failed_items = dptzoom.save_image_at_level_batch(job_list=job_list,
-                                                                           level=level,
-                                                                           pixel_spacing=spacing,
-                                                                           spacing_tolerance=tolerance,
-                                                                           jpeg_quality=jpeg_quality,
-                                                                           work_path=work_directory,
-                                                                           clear_cache=not keep_copied_files,
-                                                                           overwrite=overwrite)
+        if thumbnail:
+            successful_items, failed_items = dptzoom.save_image_as_thumbnail_batch(job_list=job_list,
+                                                                                    level=level,
+                                                                                    pixel_spacing=spacing,
+                                                                                    spacing_tolerance=tolerance,
+                                                                                    overwrite=overwrite)
+        else:
+            successful_items, failed_items = dptzoom.save_image_at_level_batch(job_list=job_list,
+                                                                               level=level,
+                                                                               pixel_spacing=spacing,
+                                                                               spacing_tolerance=tolerance,
+                                                                               jpeg_quality=jpeg_quality,
+                                                                               work_path=work_directory,
+                                                                               clear_cache=not keep_copied_files,
+                                                                               overwrite=overwrite)
 
         # Print the collection of failed cases.
         #

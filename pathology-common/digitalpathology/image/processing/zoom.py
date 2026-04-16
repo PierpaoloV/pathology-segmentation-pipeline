@@ -14,6 +14,7 @@ import os
 import datetime
 import time
 import math
+import PIL.Image
 
 #----------------------------------------------------------------------------------------------------
 
@@ -589,4 +590,144 @@ def save_image_at_level_batch(job_list, level, pixel_spacing, spacing_tolerance,
 
     # Return a list of successful exports.
     #
+    return successful_collection, failed_collection
+
+#----------------------------------------------------------------------------------------------------
+
+def save_image_as_thumbnail(image, output_path, level, pixel_spacing, spacing_tolerance, overwrite=True):
+    """
+    Save a single level of a multi-resolution image as a flat (non-pyramidal) thumbnail using PIL.
+
+    The entire level is read into memory and written as a flat image (PNG, JPEG, TIFF, etc.)
+    determined by the output_path file extension.
+
+    Args:
+        image (dptimagereader.ImageReader, str): Input image object or path.
+        output_path (str): Output image path. Format determined by file extension.
+        level (int, None): Processing level. Either this or pixel_spacing is required.
+        pixel_spacing (float, None): Processing pixel spacing (micrometer). Either this or level is required.
+        spacing_tolerance (float, None): Pixel spacing tolerance (percentage).
+        overwrite (bool): If true existing targets will be overwritten.
+
+    Raises:
+        InvalidPixelSpacingValueError: Both image level and pixel spacing are None.
+
+        DigitalPathologyConfigError: Configuration errors.
+        DigitalPathologyImageError: Image errors.
+    """
+
+    start_time = time.time()
+
+    if level is None and pixel_spacing is None:
+        raise dptprocessingerrors.InvalidPixelSpacingValueError()
+
+    logger = logging.getLogger(name=__name__)
+
+    logger.info('Saving image as thumbnail...')
+    logger.info('Input image: {path}'.format(path=image.path if isinstance(image, dptimagereader.ImageReader) else image))
+    logger.info('Result image: {path}'.format(path=output_path))
+
+    if level is None:
+        logger.info('Processing spacing: {spacing} um'.format(spacing=pixel_spacing))
+    else:
+        logger.info('Processing level: {level}'.format(level=level))
+
+    if not os.path.isfile(output_path) or overwrite:
+        input_image = image if isinstance(image, dptimagereader.ImageReader) else dptimagereader.ImageReader(image_path=image,
+                                                                                                             spacing_tolerance=spacing_tolerance,
+                                                                                                             input_channels=None,
+                                                                                                             cache_path=None)
+
+        processing_level = input_image.level(spacing=pixel_spacing) if level is None else level
+
+        if level is None:
+            logger.debug('Identified level: {level}'.format(level=processing_level))
+
+        if any(level_spacing is None for level_spacing in input_image.spacings):
+            input_image.correct(spacing=1.0, level=0)
+
+        image_shape = input_image.shapes[processing_level]
+        tile_size = 512
+
+        # Assemble the full level into a single numpy array.
+        #
+        full_image = np.zeros(shape=(image_shape[0], image_shape[1], input_image.channels), dtype=input_image.dtype)
+
+        for row in range(0, image_shape[0], tile_size):
+            for col in range(0, image_shape[1], tile_size):
+                tile = input_image.read(spacing=input_image.spacings[processing_level],
+                                        row=row, col=col,
+                                        height=min(tile_size, image_shape[0] - row),
+                                        width=min(tile_size, image_shape[1] - col))
+                tile_h, tile_w = tile.shape[:2]
+                full_image[row:row + tile_h, col:col + tile_w] = tile
+
+        # Squeeze single-channel arrays for PIL compatibility.
+        #
+        if full_image.shape[2] == 1:
+            full_image = full_image[:, :, 0]
+
+        pil_image = PIL.Image.fromarray(full_image)
+
+        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+        pil_image.save(output_path)
+
+        if not isinstance(image, dptimagereader.ImageReader):
+            input_image.close()
+
+        execution_time = time.time() - start_time
+        logger.debug('Done in {delta}'.format(delta=datetime.timedelta(seconds=execution_time)))
+
+    else:
+        logger.info('Skipping, target file already exits: {path}'.format(path=output_path))
+
+#----------------------------------------------------------------------------------------------------
+
+def save_image_as_thumbnail_batch(job_list, level, pixel_spacing, spacing_tolerance, overwrite=True):
+    """
+    Save images as flat thumbnails in batch mode.
+
+    Args:
+        job_list (list): List of job (input path, output path) tuples.
+        level (int, None): Processing level. Either this or pixel_spacing is required.
+        pixel_spacing (float, None): Processing pixel spacing (micrometer). Either this or level is required.
+        spacing_tolerance (float, None): Pixel spacing tolerance (percentage).
+        overwrite (bool): If true existing targets will be overwritten.
+
+    Returns:
+        (list, list): List of successfully processed items and list of failed items.
+    """
+
+    start_time = time.time()
+
+    logger = logging.getLogger(name=__name__)
+
+    logger.info('Saving images as thumbnails in batch mode...')
+    logger.info('Job count: {count}'.format(count=len(job_list)))
+
+    failed_collection = []
+    successful_collection = []
+    for job_index in range(len(job_list)):
+        input_path, output_path = job_list[job_index]
+
+        try:
+            logger.info('Processing [{index}/{count}]: {path}'.format(index=job_index+1, count=len(job_list), path=output_path))
+
+            save_image_as_thumbnail(image=input_path,
+                                    output_path=output_path,
+                                    level=level,
+                                    pixel_spacing=pixel_spacing,
+                                    spacing_tolerance=spacing_tolerance,
+                                    overwrite=overwrite)
+
+        except Exception as exception:
+            failed_collection.append(output_path)
+            logger.error('Error: {exception}'.format(exception=exception))
+
+        else:
+            successful_collection.append(output_path)
+
+    execution_time = time.time() - start_time
+    logger.debug('Thumbnail batch done in {delta}'.format(delta=datetime.timedelta(seconds=execution_time)))
+
     return successful_collection, failed_collection
