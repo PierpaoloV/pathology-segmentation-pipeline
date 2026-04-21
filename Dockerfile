@@ -197,6 +197,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libopenslide0 \
         librsvg2-2 \
         libsnappy-dev \
+        libspatialindex-dev \
         libtiff5 \
         libtiff-dev \
         libqt5concurrent5 \
@@ -247,6 +248,29 @@ COPY --from=build /usr/local/lib/python3.11/dist-packages /usr/local/lib/python3
 COPY --from=build /usr/local/bin /usr/local/bin
 COPY --from=build /usr/local/share/jupyter /usr/local/share/jupyter
 COPY --from=build /usr/local/etc/jupyter /usr/local/etc/jupyter
+
+RUN python - <<'PY'
+import importlib
+from pathlib import Path
+
+modules = [
+    "ipykernel",
+    "jupyterlab",
+    "multiresolutionimageinterface",
+    "openslide",
+    "pyvips",
+    "rtree",
+    "wholeslidedata",
+]
+for module_name in modules:
+    importlib.import_module(module_name)
+
+app_dir = Path("/usr/local/share/jupyter/lab")
+if not app_dir.is_dir():
+    raise RuntimeError(f"JupyterLab app dir missing: {app_dir}")
+
+print("Runtime smoke tests passed.")
+PY
 
 RUN echo "/usr/local/lib/python3.11/dist-packages/nvidia/nvimgcodec" > /etc/ld.so.conf.d/nvimgcodec.conf \
     && ldconfig
