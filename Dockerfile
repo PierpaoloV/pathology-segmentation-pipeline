@@ -114,7 +114,7 @@ RUN python -m pip install --no-cache-dir --no-color \
 RUN python -m pip install --no-cache-dir --no-color \
     -c /opt/app/constraints-cu128.txt \
     --extra-index-url "${PYTORCH_CUDA_INDEX_URL}" \
-        albumentations==1.4.14 \
+        albumentations==1.3.1 \
     cupy-cuda12x \
     cucim-cu12 \
     geojson==3.0.1 \
@@ -122,7 +122,7 @@ RUN python -m pip install --no-cache-dir --no-color \
     httpx==0.27.2 \
     jupyterlab==4.2.5 \
     natsort==8.4.0 \
-    numpy==1.26.4 \
+    numpy==1.23.5 \
     opencv-python-headless==4.10.0.84 \
     openpyxl==3.1.5 \
     openslide-python==1.3.1 \
@@ -131,7 +131,7 @@ RUN python -m pip install --no-cache-dir --no-color \
     pyaml==24.7.0 \
     pyjwt==2.6.0 \
     pyvips==2.2.3 \
-    rasterio==1.3.10 \
+    rasterio==1.3.5.post1 \
     ray==2.9.3 \
     rdp==0.8 \
     schema==0.7.5 \
@@ -157,8 +157,6 @@ RUN python -m pip install --no-cache-dir --no-color \
     flatbuffers==24.3.25 \
     opt-einsum==3.3.0 \
     pydantic==1.10.4 \
-    pydantic-compat==0.1.2 \
-    pydantic-core==2.20.1 \
     pydicom==2.4.4 \
     python-snappy==0.7.3 \
     tabulate==0.9.0 \
