@@ -88,8 +88,6 @@ RUN python -m ensurepip --upgrade \
     && python -m pip install hatchling psutil \
     && rm -rf /root/.cache/pip
 
-COPY slide2vec /opt/app/slide2vec
-
 RUN printf '%s\n' \
     'numpy<2' \
     > /opt/app/constraints-cu128.txt
@@ -97,7 +95,7 @@ RUN printf '%s\n' \
 RUN python -m pip install --no-cache-dir --no-color \
     -c /opt/app/constraints-cu128.txt \
     --extra-index-url "${PYTORCH_CUDA_INDEX_URL}" \
-    "/opt/app/slide2vec[fm]"
+    "slide2vec[fm]==4.3.0"
 
 RUN python -m pip install --no-cache-dir --no-color \
     -c /opt/app/constraints-cu128.txt \
