@@ -120,6 +120,7 @@ RUN python -m pip install --no-cache-dir --no-color \
     geojson==3.0.1 \
     h5py==3.11.0 \
     httpx==0.27.2 \
+    ipykernel \
     jupyterlab==4.2.5 \
     natsort==8.4.0 \
     numpy==1.23.5 \
@@ -244,6 +245,8 @@ RUN apt-get update \
 
 COPY --from=build /usr/local/lib/python3.11/dist-packages /usr/local/lib/python3.11/dist-packages
 COPY --from=build /usr/local/bin /usr/local/bin
+COPY --from=build /usr/local/share/jupyter /usr/local/share/jupyter
+COPY --from=build /usr/local/etc/jupyter /usr/local/etc/jupyter
 
 RUN echo "/usr/local/lib/python3.11/dist-packages/nvidia/nvimgcodec" > /etc/ld.so.conf.d/nvimgcodec.conf \
     && ldconfig
