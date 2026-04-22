@@ -38,6 +38,7 @@ DEFAULT_SAM2_TOLERANCE = 0.05
 DEFAULT_OUTPUT_SPACING_UM = 8.0
 DEFAULT_OUTPUT_CLASS = 1
 DEFAULT_TILE_SIZE = 512
+MAX_DOWNSAMPLE_AXIS_MISMATCH_RATIO = 1e-2
 
 
 def parse_args() -> argparse.Namespace:
@@ -57,7 +58,9 @@ def parse_args() -> argparse.Namespace:
         help="WholeSlideData backend used to read the WSI.",
     )
     parser.add_argument(
+        "--sam-input-spacing",
         "--sam2-input-spacing",
+        dest="sam2_input_spacing",
         type=float,
         default=DEFAULT_SAM2_INPUT_SPACING_UM,
         help="Effective spacing used to build the RGB image passed to SAM2.",
@@ -73,6 +76,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--output-spacing",
+        "--write_spacing",
+        dest="output_spacing",
         type=float,
         default=DEFAULT_OUTPUT_SPACING_UM,
         help="Spacing of the written mask level 0 in um/px.",
@@ -82,6 +87,14 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=DEFAULT_OUTPUT_CLASS,
         help="Foreground label written into the output mask.",
+    )
+    parser.add_argument(
+        "--keep-native-output-spacing",
+        action="store_true",
+        help=(
+            "Keep the SAM2 mask on its native grid and write that spacing to the TIFF metadata, "
+            "instead of resizing the mask to --output-spacing."
+        ),
     )
     parser.add_argument(
         "--spacing-at-level-0",
@@ -109,6 +122,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--tile-size",
+        "--tile_size",
+        dest="tile_size",
         type=int,
         default=DEFAULT_TILE_SIZE,
         help="Tile size used when writing the multiresolution TIFF.",
@@ -158,12 +173,13 @@ def get_downsamples(wsi) -> list[float]:
     for width, height in wsi.shapes:
         downsample_x = float(level0_width) / float(width)
         downsample_y = float(level0_height) / float(height)
-        if not math.isclose(downsample_x, downsample_y, rel_tol=1e-6, abs_tol=1e-6):
+        mismatch_ratio = abs(downsample_x - downsample_y) / max(downsample_x, downsample_y)
+        if mismatch_ratio > MAX_DOWNSAMPLE_AXIS_MISMATCH_RATIO:
             raise ValueError(
                 f"Non-isotropic downsample at level with shape {(width, height)}: "
                 f"{downsample_x} vs {downsample_y}"
             )
-        downsamples.append(downsample_x)
+        downsamples.append((downsample_x + downsample_y) / 2.0)
     return downsamples
 
 
@@ -449,6 +465,28 @@ def resize_mask_to_output_spacing(
     return resized, info
 
 
+def get_mask_native_spacing_um(sam2_info: dict[str, Any]) -> float:
+    if bool(sam2_info["resized_to_requested_spacing"]):
+        return float(sam2_info["requested_sam2_spacing_um"])
+    return float(sam2_info["effective_read_spacing_um"])
+
+
+def prepare_native_output_mask(
+    *,
+    mask: np.ndarray,
+    mask_spacing_um: float,
+    output_class: int,
+) -> tuple[np.ndarray, dict[str, int | float]]:
+    labeled = np.where(mask > 0, int(output_class), 0).astype(np.uint8)
+    info = {
+        "output_width": int(labeled.shape[1]),
+        "output_height": int(labeled.shape[0]),
+        "output_spacing_um": float(mask_spacing_um),
+        "output_class": int(output_class),
+    }
+    return labeled, info
+
+
 def write_mask_pyramid(
     *,
     mask: np.ndarray,
@@ -527,24 +565,37 @@ def main() -> None:
         f"foreground_pixels={int(thumbnail_mask.sum())}"
     )
 
-    output_mask, output_info = resize_mask_to_output_spacing(
-        mask=thumbnail_mask,
-        level0_width=int(sam2_info["level0_width"]),
-        level0_height=int(sam2_info["level0_height"]),
-        level0_spacing_um=float(sam2_info["level0_spacing_um"]),
-        output_spacing_um=args.output_spacing,
-        output_class=args.output_class,
-    )
-    print(
-        "Resized output mask: "
-        f"size={output_info['output_width']}x{output_info['output_height']}, "
-        f"spacing={output_info['output_spacing_um']:.4f} um/px"
-    )
+    if args.keep_native_output_spacing:
+        native_mask_spacing_um = get_mask_native_spacing_um(sam2_info)
+        output_mask, output_info = prepare_native_output_mask(
+            mask=thumbnail_mask,
+            mask_spacing_um=native_mask_spacing_um,
+            output_class=args.output_class,
+        )
+        print(
+            "Keeping native SAM2 mask grid: "
+            f"size={output_info['output_width']}x{output_info['output_height']}, "
+            f"spacing={output_info['output_spacing_um']:.4f} um/px"
+        )
+    else:
+        output_mask, output_info = resize_mask_to_output_spacing(
+            mask=thumbnail_mask,
+            level0_width=int(sam2_info["level0_width"]),
+            level0_height=int(sam2_info["level0_height"]),
+            level0_spacing_um=float(sam2_info["level0_spacing_um"]),
+            output_spacing_um=args.output_spacing,
+            output_class=args.output_class,
+        )
+        print(
+            "Resized output mask: "
+            f"size={output_info['output_width']}x{output_info['output_height']}, "
+            f"spacing={output_info['output_spacing_um']:.4f} um/px"
+        )
 
     write_mask_pyramid(
         mask=output_mask,
         output_path=args.output_mask,
-        spacing_um=args.output_spacing,
+        spacing_um=float(output_info["output_spacing_um"]),
         tile_size=args.tile_size,
     )
     print(f"Wrote multiresolution mask TIFF: {args.output_mask}")
