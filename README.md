@@ -1,94 +1,118 @@
 # Pathology Segmentation Pipeline
 
-A Docker-based pipeline for training and deploying deep learning segmentation models on Whole Slide Images (WSI). Built around an asynchronous tile inference engine, it supports tissue/background segmentation, multi-tissue classification, epithelium segmentation, and tumour-stroma ratio (TSR) computation.
+Docker-based whole-slide pathology pipeline for tissue/background segmentation, epithelium or multi-tissue segmentation, and tumour-stroma ratio (TSR) computation.
+
+This `atlas` branch adds an alternative tissue/background preprocessing path based on the [AtlasPatch](https://github.com/AtlasAnalyticsLab/AtlasPatch) SAM2 tissue model from Atlas Analytics Lab. The original U-Net tissue model remains available and is still the default unless `--sam` is used.
 
 ![Python](https://img.shields.io/badge/Python-3.11-blue)
-![PyTorch](https://img.shields.io/badge/PyTorch-2.4.1-orange)
-![CUDA](https://img.shields.io/badge/CUDA-12.4-green)
+![PyTorch](https://img.shields.io/badge/PyTorch-cu128-orange)
+![CUDA](https://img.shields.io/badge/CUDA-12.8.1-green)
 ![Docker](https://img.shields.io/badge/Docker-GPU-informational)
 ![License](https://img.shields.io/badge/License-Apache%202.0-lightgrey)
 
----
-
 ## Overview
 
-The pipeline ingests a WSI and runs three sequential stages — tissue segmentation, epithelium/tumour segmentation, and TSR heatmap computation — entirely inside a GPU-enabled Docker container. Model weights are hosted on HuggingFace Hub and downloaded on demand, keeping the image lightweight.
+The repository contains two closely related workflows:
 
-```mermaid
-flowchart TD
-    A([🔬 WSI Input]) --> B{Format check}
-    B -- not .tif --> C[convert.py\nConvert to TIFF]
-    B -- .tif --> D
-    C --> D["Tissue / Background Segmentation\nU-Net · MobileNetV2 · spacing 4.0 µm"]
-    D --> E["Multi-Tissue / Epithelium Segmentation\nEnsemble of 5 models · spacing 1.0 µm\nmasked by TB output"]
-    E --> F["TSR Computation\nHotspot detection · concave hull"]
-    F --> G([📊 Heatmaps + YAML results])
+1. The original three-stage inference pipeline:
+   - tissue/background segmentation
+   - epithelium or multi-tissue segmentation
+   - TSR computation
+2. A dataset-level preprocessing workflow for generating tissue masks only, with either:
+   - the original fast-inference TB model at `4.0` um/px
+   - the AtlasPatch SAM2 tissue model at `8.0` um/px by default
 
-    style A fill:#4a90d9,color:#fff
-    style G fill:#27ae60,color:#fff
-```
+The core inference stack is built around ASAP-compatible WSI IO plus the asynchronous tile engine in [pathology-fast-inference](/Users/pierpaolovendittelli/projects/pathology-segmentation-pipeline/pathology-fast-inference).
 
----
+## What's New On `atlas`
+
+This branch introduces:
+
+- [code/process_dataset.sh](/Users/pierpaolovendittelli/projects/pathology-segmentation-pipeline/code/process_dataset.sh): dataset-level tissue-mask preprocessing entrypoint
+- [code/atlas_tb_mask.py](/Users/pierpaolovendittelli/projects/pathology-segmentation-pipeline/code/atlas_tb_mask.py): single-slide Atlas SAM2 tissue mask writer
+- [code/atlas_tb_batch.py](/Users/pierpaolovendittelli/projects/pathology-segmentation-pipeline/code/atlas_tb_batch.py): batch-oriented Atlas helper
+- [download_models.py](/Users/pierpaolovendittelli/projects/pathology-segmentation-pipeline/download_models.py): now supports `sam` downloads in addition to `tb`, `epithelium`, and `multi-tissue`
+
+The intended usage is:
+
+- use the original TB model when you want the legacy pipeline behavior
+- use `--sam` when you want Atlas-backed tissue masks for research workflows
+
+## AtlasPatch Credit
+
+This branch uses the AtlasPatch tissue model weights and config distributed by Atlas Analytics Lab:
+
+- AtlasPatch GitHub: [AtlasAnalyticsLab/AtlasPatch](https://github.com/AtlasAnalyticsLab/AtlasPatch)
+- AtlasPatch model card: [AtlasAnalyticsLab/AtlasPatch on Hugging Face](https://huggingface.co/AtlasAnalyticsLab/AtlasPatch)
+- Paper: *AtlasPatch: An Efficient and Scalable Tool for Whole Slide Image Preprocessing in Computational Pathology* ([arXiv:2602.03998](https://arxiv.org/abs/2602.03998))
+
+Important implementation note:
+
+- this repository does **not** vendor the AtlasPatch codebase directly
+- instead, it downloads the AtlasPatch SAM2 checkpoint and config at runtime and applies them through a local ASAP/WholeSlideData-based adapter
+- the adapter follows an `hs2p`-style coarse-spacing whole-slide read path rather than AtlasPatch’s canonical `1.25x -> 1024x1024` thumbnail preprocessing
+
+If you use this branch in research that depends on the Atlas tissue model, please credit the AtlasPatch authors and cite their paper.
+
+## License Note For AtlasPatch
+
+The main repository remains Apache 2.0. However, the AtlasPatch tissue model itself is distributed under `CC-BY-NC-SA-4.0` according to the AtlasPatch model card.
+
+That means:
+
+- the original pipeline code in this repo stays under its own license
+- the optional Atlas model path is for non-commercial use unless you obtain separate rights from the AtlasPatch authors
+
+See the AtlasPatch model card for the exact terms:
+
+- [AtlasPatch model card on Hugging Face](https://huggingface.co/AtlasAnalyticsLab/AtlasPatch)
 
 ## Repository Structure
 
-```mermaid
-graph TD
-    R[pathology-segmentation-pipeline] --> DF[Dockerfile]
-    R --> EX[execute.sh]
-    R --> DL[download_models.py]
-    R --> CODE[code/]
-    R --> FI[pathology-fast-inference/]
-    R --> PC[pathology-common/]
-
-    CODE --> TR[pytorch_exp_run.py\nTraining loop]
-    CODE --> DG[torch_data_generator.py\nDataLoader wrapper]
-    CODE --> TSR[compute_tsr.py\nTSR heatmapper]
-    CODE --> AW[awesomedice.py\nEvaluation metrics]
-    CODE --> SC[start_characterization.sh\nInference entrypoint]
-
-    FI --> PROC[processors/torch_processor.py\nSingle + ensemble inference]
-    FI --> ASYNC[async_wsi_reader/consumer/writer\nAsync tile pipeline]
-    FI --> SCRIPTS[scripts/applynetwork_multiproc.py\nCLI entry point]
-
-    PC --> SAMP[generator/batch/simplesampler.py\nPatch sampling]
-    PC --> READER[image/io/imagereader.py\nWSI I/O via ASAP]
-
-    style R fill:#2c3e50,color:#fff
-    style CODE fill:#2980b9,color:#fff
-    style FI fill:#8e44ad,color:#fff
-    style PC fill:#16a085,color:#fff
+```text
+pathology-segmentation-pipeline/
+├── code/
+│   ├── process_dataset.sh
+│   ├── atlas_tb_mask.py
+│   ├── atlas_tb_batch.py
+│   ├── start_characterization.sh
+│   ├── compute_tsr.py
+│   ├── awesomedice.py
+│   └── pytorch_exp_run.py
+├── pathology-common/
+├── pathology-fast-inference/
+├── download_models.py
+├── Dockerfile
+└── execute.sh
 ```
 
----
-
-## Inference Pipeline
-
-### 1. Build the Docker image
+## Build The Docker Image
 
 ```bash
 docker build -t pathology-pipeline .
 ```
 
-### 2. Download model weights from HuggingFace
+## Download Model Weights
+
+The downloader now supports four model families:
 
 ```bash
-# Download all model families
-docker run --gpus all -it pathology-pipeline python3 /home/user/source/download_models.py all
-
-# Or selectively
-docker run --gpus all -it pathology-pipeline python3 /home/user/source/download_models.py tb
-docker run --gpus all -it pathology-pipeline python3 /home/user/source/download_models.py multi-tissue
+python3 /home/user/source/download_models.py tb
+python3 /home/user/source/download_models.py epithelium
+python3 /home/user/source/download_models.py multi-tissue
+python3 /home/user/source/download_models.py sam
+python3 /home/user/source/download_models.py all
 ```
 
-Mount a host directory to cache models across restarts:
-```bash
-docker run --gpus all \
-  -v /host/path/models:/home/user/source/models \
-  pathology-pipeline python3 /home/user/source/download_models.py all
-```
+Expected locations inside the container:
 
-### 3. Run inference on a WSI
+- TB model: `/home/user/source/models/tb/playground_soft-cloud-137_best_model.pt`
+- Atlas SAM checkpoint: `/home/user/source/models/sam/model.pth`
+- Atlas SAM config: `/home/user/source/models/sam/sam2.1_hiera_t.yaml`
+
+## Full Inference Pipeline
+
+The original single-slide pipeline is still available through [start_characterization.sh](/Users/pierpaolovendittelli/projects/pathology-segmentation-pipeline/code/start_characterization.sh).
 
 ```bash
 docker run --gpus all \
@@ -100,141 +124,179 @@ docker run --gpus all \
 
 Outputs are written to:
 
-| Path | Content |
-|------|---------|
-| `/home/user/process/tb/` | Tissue / background masks |
-| `/home/user/process/epithelium/` | Epithelium segmentation masks |
-| `/home/user/process/tumor/` | Tumour masks |
-| `/home/user/process/concave_hull_masks/` | Concave hull annotations |
+- `/home/user/process/tb/`
+- `/home/user/process/epithelium/`
+- `/home/user/process/tumor/`
+- `/home/user/process/concave_hull_masks/`
 
----
+## Dataset Preprocessing
+
+The new dataset-level entrypoint is [process_dataset.sh](/Users/pierpaolovendittelli/projects/pathology-segmentation-pipeline/code/process_dataset.sh).
+
+It generates one tissue-mask TIFF per slide:
+
+- input `/path/to/images/WT_S02_P000001_C0001_E0001.mrxs`
+- output `/path/to/output/WT_S02_P000001_C0001_E0001.tif`
+
+### Default TB Mode
+
+Without `--sam`, the script:
+
+- downloads the legacy TB model if needed
+- uses [applynetwork_multiproc.py](/Users/pierpaolovendittelli/projects/pathology-segmentation-pipeline/pathology-fast-inference/scripts/applynetwork_multiproc.py)
+- defaults to `--read_spacing 4.0`
+- defaults to `--write_spacing 4.0`
+
+Example:
+
+```bash
+bash /home/user/source/code/process_dataset.sh \
+  --input_wsi_path /home/user/image \
+  --output_wsi_path /home/user/process \
+  --overwrite
+```
+
+### Atlas SAM Mode
+
+With `--sam`, the script:
+
+- downloads the Atlas SAM assets if needed
+- runs [atlas_tb_mask.py](/Users/pierpaolovendittelli/projects/pathology-segmentation-pipeline/code/atlas_tb_mask.py)
+- defaults to `--sam-input-spacing 8.0`
+- keeps native output spacing by default to avoid the final resampling step that can distort mask geometry
+
+Example:
+
+```bash
+bash /home/user/source/code/process_dataset.sh \
+  --input_wsi_path /home/user/image \
+  --output_wsi_path /home/user/process \
+  --sam \
+  --sam-input-spacing 8.0 \
+  --overwrite
+```
+
+### Direct Read Vs Temporary Staging
+
+By default, [process_dataset.sh](/Users/pierpaolovendittelli/projects/pathology-segmentation-pipeline/code/process_dataset.sh) reads slides directly from `--input_wsi_path`.
+
+If you pass `--tmp`, it instead:
+
+1. creates `/home/user/tmp/process_dataset`
+2. copies one slide into local temporary storage
+3. processes the staged local copy
+4. deletes the staged copy
+5. moves to the next slide
+
+This is especially useful when the input dataset is hosted on Samba or another network share.
+
+Example:
+
+```bash
+bash /home/user/source/code/process_dataset.sh \
+  --input_wsi_path /data/shared/slides \
+  --output_wsi_path /home/user/process \
+  --sam \
+  --sam-input-spacing 8.0 \
+  --tmp \
+  --overwrite
+```
+
+### Important Flags
+
+Common:
+
+- `--input_wsi_path`
+- `--output_wsi_path`
+- `--input_filter`
+- `--tile_size`
+- `--overwrite`
+- `--tmp`
+
+TB-specific:
+
+- `--read_spacing`
+- `--write_spacing`
+- `--readers`
+- `--writers`
+- `--batch_size`
+- `--gpu_count`
+
+SAM-specific:
+
+- `--sam`
+- `--sam-input-spacing`
+- `--spacing-at-level-0`
+
+## Atlas SAM Adapter Behavior
+
+[atlas_tb_mask.py](/Users/pierpaolovendittelli/projects/pathology-segmentation-pipeline/code/atlas_tb_mask.py) currently:
+
+- opens the slide with `wholeslidedata` using ASAP backend
+- reads the full slide near a requested physical spacing
+- runs the Atlas SAM2 predictor on that coarse RGB view
+- writes a multiresolution TIFF mask with ASAP’s writer
+
+Important defaults:
+
+- SAM input spacing: `8.0` um/px
+- output label: `1`
+- output format: multiresolution TIFF
+
+The script also supports:
+
+- `--keep-native-output-spacing`
+- `--spacing-at-level-0`
+- local checkpoint/config overrides
 
 ## Training
 
-```mermaid
-flowchart LR
-    CFG[network_configuration.yaml] --> INIT[init_model\nArch · Loss · LR schedule]
-    DATA[data config YAML] --> SAMP[SimpleSampler\nSlide selection per epoch]
-    SAMP --> DL[DataLoader\npin_memory · persistent_workers]
-    DL --> TRAIN[Train loop\nAMP · Lovasz/Dice · grad clip]
-    INIT --> TRAIN
-    TRAIN --> VAL[Validation loop]
-    VAL --> SCH[LR scheduler\nReduceLROnPlateau]
-    SCH --> ES{Early stopping\nstop_plateau}
-    ES -- no improvement --> STOP([Best model .pt])
-    ES -- continue --> TRAIN
-    TRAIN --> WB[WandB logging]
+Training support remains available through [code/pytorch_exp_run.py](/Users/pierpaolovendittelli/projects/pathology-segmentation-pipeline/code/pytorch_exp_run.py) and [code/network_configuration.yaml](/Users/pierpaolovendittelli/projects/pathology-segmentation-pipeline/code/network_configuration.yaml).
 
-    style STOP fill:#27ae60,color:#fff
-    style WB fill:#f39c12,color:#fff
-```
-
-### Configure
-
-Edit `code/network_configuration.yaml`:
-
-```yaml
-model:
-    modelname: 'unet'          # unet, unet-plus, manet, fpn, deeplabv3+, ...
-    backbone: 'mobilenet_v2'
-    loss: 'lovasz'             # lovasz, dice, cc
-    learning_rate: 0.0001
-training:
-    epochs: 150
-    stop_plateau: 100          # early stopping patience
-    training_batch_size: 10
-    mixed_precision: true
-```
-
-### Run training
+Example:
 
 ```bash
-python3 code/pytorch_exp_run.py \
+python3 /home/user/source/code/pytorch_exp_run.py \
   --project_name my_experiment \
   --data_path /path/to/data.yaml \
-  --config_path code/network_configuration.yaml \
+  --config_path /home/user/source/code/network_configuration.yaml \
   --output_path /path/to/output
 ```
 
-At startup you will be prompted to confirm or change the segmentation architecture:
-
-```
-Available architectures:
-  [1] unet  ← current
-  [2] unet-plus
-  [3] manet
-  [4] linknet
-  [5] fpn
-  ...
-```
-
-Training progress is displayed with Rich live progress bars and a per-epoch summary:
-
-```
-Epoch   5/150  train_loss=0.3241  val_loss=0.2841  val_iou=0.7456  lr=1.00e-04  [2m]  ✓ new best
-Epoch   6/150  train_loss=0.3312  val_loss=0.2901  val_iou=0.7423  lr=1.00e-04  [2m]  no improve 1/100
-```
-
----
-
 ## Evaluation
 
-`awesomedice.py` computes per-class and overall Dice / Jaccard scores by comparing segmentation masks against ground truth, with optional per-slide confusion matrices.
+[awesomedice.py](/Users/pierpaolovendittelli/projects/pathology-segmentation-pipeline/code/awesomedice.py) computes Dice and Jaccard scores for generated masks.
 
 ```bash
-python3 code/awesomedice.py \
+python3 /home/user/source/code/awesomedice.py \
   --input_mask_path "/results/*.tif" \
   --ground_truth_path "/gt/{image}.tif" \
   --classes "{'background': 1, 'epithelium': 2, 'stroma': 3}" \
   --spacing 1.0 \
-  --output_path /results/scores.yaml \
-  --mapping "{'background': 1, 'epithelium': 2, 'stroma': 3}" \
-  --all_cm
+  --output_path /results/scores.yaml
 ```
-
-Results are printed as a Rich table:
-
-```
-┌────────────────────────────────┐
-│     Evaluation results         │
-├─────────────┬──────────────────┤
-│ Class       │ F1 (overall)     │
-├─────────────┼──────────────────┤
-│ epithelium  │ 0.8234           │
-│ stroma      │ 0.7891           │
-│ All classes │ 0.8123           │
-└─────────────┴──────────────────┘
-```
-
----
-
-## Model Weights
-
-Pre-trained weights are hosted on HuggingFace Hub. Use `download_models.py` to fetch them (see above). To upload your own trained models:
-
-```bash
-python3 upload_models_to_hf.py
-```
-
-Edit the `CONFIGURATION` section at the top of the file before running.
-
----
 
 ## Key Dependencies
 
-| Package | Version | Role |
-|---------|---------|------|
-| PyTorch | 2.4.1+cu124 | Model training and inference |
-| ASAP | 2.2 Nightly | WSI file I/O |
-| segmentation-models-pytorch | 0.3.4 | U-Net / UNet++ / FPN architectures |
-| albumentations | 1.4.x | Training augmentation |
-| wandb | 0.17.9 | Experiment tracking |
-| rich | 13.7.1 | Training progress display |
-| huggingface_hub | 0.24.6 | Model weight hosting |
-| wholeslidedata | 0.0.15 | WSI utilities |
+- PyTorch
+- CUDA 12.8.1
+- ASAP
+- wholeslidedata
+- segmentation-models-pytorch
+- huggingface_hub
+- sam2
+- jupyterlab
 
----
+## Acknowledgements
+
+This repository builds on its own internal async inference stack plus external open-source tooling. For the Atlas tissue path in particular, thanks to:
+
+- Atlas Analytics Lab for AtlasPatch and the released SAM2 tissue model
+- Facebook Research for SAM2
+- the `hs2p` project for helping shape the coarse-spacing ASAP input strategy used in this branch
 
 ## License
 
-Apache License 2.0 — see [LICENSE](LICENSE) for details.
+This repository is licensed under Apache License 2.0. See [LICENSE](/Users/pierpaolovendittelli/projects/pathology-segmentation-pipeline/LICENSE).
+
+The optional Atlas model assets are governed separately by the AtlasPatch license and terms.
